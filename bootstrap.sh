@@ -3,21 +3,26 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-run_step() {
-    local step_name="$1"
-    local script_path="$2"
+run_installer() {
+    local installer_name="$1"
+    local step_name="${installer_name//_/ }"
 
-    echo "[dotfiles] Starting ${step_name}..."
-    bash "${script_path}"
+    echo "[dotfiles] Installing ${step_name}..."
+    bash "${SCRIPT_DIR}/scripts/install/${installer_name}.sh"
     echo "[dotfiles] Finished ${step_name}."
 }
 
 echo "Starting modular dotfiles bootstrap..."
 
-run_step "core tools" "${SCRIPT_DIR}/scripts/install_core_tools.sh"
-run_step "config tools" "${SCRIPT_DIR}/scripts/install_config_tools.sh"
-run_step "Infisical" "${SCRIPT_DIR}/scripts/install_infisical.sh"
-run_step "Chezmoi" "${SCRIPT_DIR}/scripts/install_chezmoi.sh"
+run_installer "curl"
+run_installer "git"
+run_installer "zsh"
+run_installer "gh"
+run_installer "starship"
+run_installer "sheldon"
+run_installer "antigravity_cli"
+run_installer "infisical"
+run_installer "chezmoi"
 
 echo "==========================================="
 echo "Bootstrap complete!"

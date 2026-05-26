@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/os_detect.sh"
 source "${SCRIPT_DIR}/command_utils.sh"
 
-echo "Installing config-based tools (gh, starship, sheldon)..."
+echo "Installing config-based tools (gh, starship, sheldon, Antigravity CLI)..."
 
 # GitHub CLI (gh)
 if ! command -v gh &> /dev/null; then
@@ -68,4 +68,24 @@ if ! command -v sheldon &> /dev/null; then
     fi
 else
     echo "Sheldon is already installed."
+fi
+
+# Antigravity CLI (agy)
+if ! command -v agy &> /dev/null; then
+    echo "Installing Antigravity CLI..."
+    if [ "${machine}" == "Linux" ] || [ "${machine}" == "Mac" ]; then
+        if ! command -v curl &> /dev/null; then
+            echo "Skipping Antigravity CLI install because curl is not available."
+        else
+            curl -fsSL https://antigravity.google/cli/install.sh | bash
+        fi
+    elif [ "${machine}" == "Windows" ]; then
+        if command -v powershell.exe &> /dev/null; then
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "iwr https://antigravity.google/cli/install.ps1 | iex"
+        else
+            echo "Skipping Antigravity CLI install on Windows because PowerShell is unavailable."
+        fi
+    fi
+else
+    echo "Antigravity CLI (agy) is already installed."
 fi

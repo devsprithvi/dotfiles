@@ -1,34 +1,42 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source OS detection
 source "${SCRIPT_DIR}/os_detect.sh"
+source "${SCRIPT_DIR}/command_utils.sh"
 
 echo "Installing core system tools (curl, git, zsh)..."
 
 if [ "${machine}" == "Linux" ]; then
+    if ! can_run_privileged; then
+        echo "Skipping Linux core tool installation because root or passwordless sudo is unavailable."
+        exit 0
+    fi
+
+    export DEBIAN_FRONTEND=noninteractive
+
     echo "Updating apt..."
-    sudo apt-get update
+    run_privileged apt-get update
     
     if ! command -v curl &> /dev/null; then
         echo "Installing curl..."
-        sudo apt-get install -y curl
+        run_privileged apt-get install -y curl
     else
         echo "curl is already installed."
     fi
 
     if ! command -v git &> /dev/null; then
         echo "Installing git..."
-        sudo apt-get install -y git
+        run_privileged apt-get install -y git
     else
         echo "git is already installed."
     fi
 
     if ! command -v zsh &> /dev/null; then
         echo "Installing zsh..."
-        sudo apt-get install -y zsh
+        run_privileged apt-get install -y zsh
     else
         echo "zsh is already installed."
     fi

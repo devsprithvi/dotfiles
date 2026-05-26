@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -9,6 +9,11 @@ echo "Installing Chezmoi..."
 
 if ! command -v chezmoi &> /dev/null; then
     if [ "${machine}" == "Linux" ] || [ "${machine}" == "Mac" ]; then
+        if ! command -v curl &> /dev/null; then
+            echo "Skipping Chezmoi install because curl is not available."
+            exit 0
+        fi
+
         CHEZMOI_BINDIR="${HOME}/.local/bin"
         mkdir -p "${CHEZMOI_BINDIR}"
         sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "${CHEZMOI_BINDIR}"

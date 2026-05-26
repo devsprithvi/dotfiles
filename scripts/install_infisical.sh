@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-source ./scripts/os_detect.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "${SCRIPT_DIR}/os_detect.sh"
 
 echo "Installing Infisical CLI..."
 
@@ -22,6 +24,11 @@ else
     echo "Infisical CLI is already installed."
 fi
 
+if ! command -v infisical &> /dev/null; then
+    echo "Skipping Infisical authentication because the CLI is not installed."
+    exit 0
+fi
+
 echo "Verifying Infisical authentication..."
 if ! infisical secrets get ADMIN_PAT --env global --path /github --plain &> /dev/null; then
     echo "You are not authenticated with Infisical or the secret is not accessible."
@@ -30,6 +37,10 @@ if ! infisical secrets get ADMIN_PAT --env global --path /github --plain &> /dev
         echo "Logging in via Machine Identity credentials from environment variables..."
         infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" || \
         infisical login --method=machine-identity --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET"
+    elif [ ! -t 0 ]; then
+        echo "Skipping Infisical login in non-interactive setup."
+        echo "Set INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET to authenticate during bootstrap."
+        exit 0
     else
         echo "Please provide your Infisical Machine Identity credentials to login."
         read -p "Client ID: " INFISICAL_CLIENT_ID_INPUT

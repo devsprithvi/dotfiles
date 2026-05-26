@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "Starting modular dotfiles bootstrap..."
 
-bash ./scripts/install_core_tools.sh
-bash ./scripts/install_config_tools.sh
-bash ./scripts/install_infisical.sh
-bash ./scripts/install_chezmoi.sh
+bash "${SCRIPT_DIR}/scripts/install_core_tools.sh"
+bash "${SCRIPT_DIR}/scripts/install_config_tools.sh"
+bash "${SCRIPT_DIR}/scripts/install_infisical.sh"
+bash "${SCRIPT_DIR}/scripts/install_chezmoi.sh"
 
 echo "==========================================="
 echo "Bootstrap complete!"

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Source OS detection
-source ./scripts/os_detect.sh
+source "${SCRIPT_DIR}/os_detect.sh"
 
 echo "Installing core system tools (curl, git, zsh)..."
 

@@ -17,8 +17,7 @@ case "${machine}" in
             exit 0
         fi
 
-        ensure_local_bin_on_path
-        mkdir -p "$HOME/.local/bin"
+        prepare_local_bin
         download_to_stdout "https://get.chezmoi.io" | sh -s -- -b "$HOME/.local/bin"
         ensure_local_bin_on_path
         echo "Chezmoi installed to $HOME/.local/bin/chezmoi"

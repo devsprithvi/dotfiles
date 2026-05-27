@@ -28,8 +28,7 @@ case "${machine}" in
             exit 0
         fi
 
-        ensure_local_bin_on_path
-        mkdir -p "$HOME/.local/bin"
+        prepare_local_bin
         download_to_stdout "https://rossmacarthur.github.io/install/crate.sh" | bash -s -- --repo rossmacarthur/sheldon --to "$HOME/.local/bin"
         ;;
 esac

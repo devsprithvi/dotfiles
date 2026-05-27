@@ -26,7 +26,7 @@ run_installer "chezmoi"
 
 echo "==========================================="
 echo "Bootstrap complete!"
-echo "If this is a new machine, you can now run:"
+echo "Open a new shell, then run:"
 echo "  chezmoi init --apply devsprithvi"
 echo "If chezmoi is not on your PATH yet, run:"
 echo "  ~/.local/bin/chezmoi init --apply devsprithvi"

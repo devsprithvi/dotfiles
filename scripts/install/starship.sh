@@ -24,8 +24,7 @@ case "${machine}" in
             exit 0
         fi
 
-        ensure_local_bin_on_path
-        mkdir -p "$HOME/.local/bin"
+        prepare_local_bin
         download_to_stdout "https://starship.rs/install.sh" | sh -s -- -y -b "$HOME/.local/bin"
         ;;
 esac

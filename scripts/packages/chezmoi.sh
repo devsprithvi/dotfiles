@@ -11,7 +11,8 @@ fi
 
 if os_is_linux || os_is_macos; then
     mkdir -p "$HOME/.local/bin"
-    installer_url_sh "chezmoi" "https://get.chezmoi.io" -s -- -b "$HOME/.local/bin"
+    # Use sh -c pattern (not pipe) — piping drops the -b flag
+    sh -c "$(curl -fsSL get.chezmoi.io)" -- -b "$HOME/.local/bin"
 elif os_is_windows; then
     if has_command scoop; then
         installer_scoop_install chezmoi

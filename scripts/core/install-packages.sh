@@ -25,12 +25,16 @@ run_package() {
 
     if [[ ! -f "${script}" ]]; then
         echo "[packages] ERROR: ${name}.sh not found. Skipping."
-        return 1
+        return 0
     fi
 
     echo ""
     echo "[packages] ── ${name} ──────────────────────"
-    bash "${script}"
+    if bash "${script}"; then
+        echo "[packages] ✓ ${name} done."
+    else
+        echo "[packages] ✗ ${name} failed (exit $?). Continuing with remaining packages."
+    fi
     # Refresh PATH — the package may have installed to ~/.local/bin
     ensure_user_bin_in_path
 }

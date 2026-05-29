@@ -1,3 +1,6 @@
 # Created by newuser for 5.9
+
+# ── PATH ────────────────────────────────────────────────────────────────────
+export PATH="$HOME/.local/bin:$PATH"
 eval "$(sheldon --config-file ~/.config/sheldon/zsh.toml source)"
 eval "$(starship init zsh)"

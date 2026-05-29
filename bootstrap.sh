@@ -51,14 +51,21 @@ if ! has_command git; then
 fi
 
 # ── Step 3: Install chezmoi ─────────────────────────────────────────────────
-echo "[bootstrap] Installing chezmoi..."
-bash "${SCRIPT_DIR}/scripts/packages/chezmoi.sh"
-ensure_user_bin_in_path
+if ! has_command chezmoi; then
+    echo "[bootstrap] chezmoi not found. Installing..."
+    bin_dir="$HOME/.local/bin"
+    mkdir -p "$bin_dir"
+    curl -fsSL https://get.chezmoi.io | sh -s -- -b "$bin_dir"
+else
+    echo "[bootstrap] chezmoi is already installed."
+fi
+
+# Ensure ~/.local/bin is on PATH for the rest of this session
+export PATH="$HOME/.local/bin:$PATH"
 
 # ── Step 4: Install & authenticate infisical ────────────────────────────────
 echo "[bootstrap] Installing infisical..."
 bash "${SCRIPT_DIR}/scripts/packages/infisical.sh"
-ensure_user_bin_in_path
 
 # ── Step 5: Fetch PAT & initialize dotfiles ─────────────────────────────────
 # The dotfiles repo is private, so we fetch the GitHub PAT from Infisical
@@ -80,7 +87,7 @@ REPO_URL="https://${GH_TOKEN}@github.com/${GITHUB_USER}/${DOTFILES_REPO}.git"
 
 echo "[bootstrap] Initializing dotfiles with chezmoi..."
 
-if has_command chezmoi; then
+I could find a progress in if has_command chezmoi; then
     chezmoi init --apply "${REPO_URL}"
 elif [[ -x "$HOME/.local/bin/chezmoi" ]]; then
     "$HOME/.local/bin/chezmoi" init --apply "${REPO_URL}"

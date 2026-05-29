@@ -2,31 +2,17 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 source "${SCRIPT_DIR}/../lib/common.sh"
 
 if has_command agy; then
-    echo "Antigravity CLI (agy) is already installed."
+    echo "antigravity cli is already installed."
     exit 0
 fi
 
-case "${machine}" in
-    Linux|Mac)
-        if ! has_command curl && ! has_command wget; then
-            echo "Skipping Antigravity CLI installation because neither curl nor wget is available."
-            exit 0
-        fi
+if os_is_linux || os_is_macos; then
+    installer_url_bash "antigravity cli" "https://antigravity.google/cli/install.sh"
+elif os_is_windows; then
+    installer_url_powershell "antigravity cli" "https://antigravity.google/cli/install.ps1"
+fi
 
-        prepare_local_bin
-        download_to_stdout "https://antigravity.google/cli/install.sh" | bash -s -- --dir "$HOME/.local/bin"
-        ensure_local_bin_on_path
-        echo "Antigravity CLI installed to $HOME/.local/bin/agy"
-        ;;
-    Windows)
-        if has_command powershell.exe; then
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "iwr https://antigravity.google/cli/install.ps1 | iex"
-        else
-            echo "Skipping Antigravity CLI installation on Windows because PowerShell is unavailable."
-        fi
-        ;;
-esac
+echo "antigravity cli installed."

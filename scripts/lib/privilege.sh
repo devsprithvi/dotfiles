@@ -21,13 +21,3 @@ run_privileged() {
         return 127
     fi
 }
-
-run_privileged_shell() {
-    if is_root; then
-        sh -lc "$1"
-    elif has_passwordless_sudo; then
-        sudo -n sh -lc "$1"
-    else
-        return 127
-    fi
-}

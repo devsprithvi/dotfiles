@@ -2,65 +2,58 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 source "${SCRIPT_DIR}/../lib/common.sh"
 
-if ! has_command infisical; then
-    case "${machine}" in
-        Linux)
-            if ! can_run_privileged; then
-                echo "Skipping Infisical CLI installation on Linux because root or passwordless sudo is unavailable."
-            elif ! has_command curl && ! has_command wget; then
-                echo "Skipping Infisical CLI installation on Linux because neither curl nor wget is available."
-            else
-                export DEBIAN_FRONTEND=noninteractive
-                download_to_stdout "https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh" | run_privileged env DEBIAN_FRONTEND=noninteractive bash
-                run_privileged apt-get update
-                run_privileged apt-get install -y infisical
-            fi
-            ;;
-        Mac)
-            require_package_manager brew "Homebrew is not installed. Please install Homebrew first."
-            brew install infisical/get-cli/infisical
-            ;;
-        Windows)
-            if has_command scoop; then
-                scoop install infisical
-            else
-                echo "Skipping Infisical CLI installation on Windows because Scoop is unavailable."
-            fi
-            ;;
-    esac
+if has_command infisical; then
+    echo "infisical is already installed."
 else
-    echo "Infisical CLI is already installed."
+    if os_is_linux || os_is_macos; then
+        installer_url_bash "infisical" \
+            "https://raw.githubusercontent.com/Infisical/infisical/main/scripts/install.sh"
+    elif os_is_windows; then
+        if has_command scoop; then
+            installer_scoop_install infisical
+        else
+            echo "Cannot install infisical on Windows: scoop required."
+            exit 1
+        fi
+    fi
 fi
 
 if ! has_command infisical; then
-    echo "Skipping Infisical authentication because the CLI is not installed."
+    echo "infisical is not available. Skipping authentication."
     exit 0
 fi
 
-echo "Verifying Infisical authentication..."
+# ── Authentication ──────────────────────────────────────────────────────────
+echo "Verifying infisical authentication..."
 if infisical secrets get ADMIN_PAT --env global --path /github --plain &> /dev/null; then
-    echo "Successfully accessed Infisical secrets!"
+    echo "Already authenticated with infisical."
     exit 0
 fi
 
-echo "You are not authenticated with Infisical or the secret is not accessible."
+echo "Not authenticated with infisical."
 
-if [ -n "${INFISICAL_CLIENT_ID:-}" ] && [ -n "${INFISICAL_CLIENT_SECRET:-}" ]; then
-    echo "Logging in via Machine Identity credentials from environment variables..."
-    infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" || \
-    infisical login --method=machine-identity --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET"
-elif [ -f "/.dockerenv" ] || [ ! -t 0 ]; then
-    echo "Skipping interactive Infisical login in non-interactive setup."
-    echo "Set INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET to authenticate during bootstrap."
+if [[ -n "${INFISICAL_CLIENT_ID:-}" && -n "${INFISICAL_CLIENT_SECRET:-}" ]]; then
+    echo "Logging in via environment credentials..."
+    infisical login --method=universal-auth \
+        --client-id="$INFISICAL_CLIENT_ID" \
+        --client-secret="$INFISICAL_CLIENT_SECRET" || \
+    infisical login --method=machine-identity \
+        --client-id="$INFISICAL_CLIENT_ID" \
+        --client-secret="$INFISICAL_CLIENT_SECRET"
+elif [[ -f "/.dockerenv" ]] || [[ ! -t 0 ]]; then
+    echo "Non-interactive environment. Set INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET."
 else
-    echo "Please provide your Infisical Machine Identity credentials to login."
+    echo "Please provide your Infisical Machine Identity credentials."
     read -p "Client ID: " INFISICAL_CLIENT_ID_INPUT
     read -s -p "Client Secret: " INFISICAL_CLIENT_SECRET_INPUT
     echo ""
 
-    infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID_INPUT" --client-secret="$INFISICAL_CLIENT_SECRET_INPUT" || \
-    infisical login --method=machine-identity --client-id="$INFISICAL_CLIENT_ID_INPUT" --client-secret="$INFISICAL_CLIENT_SECRET_INPUT"
+    infisical login --method=universal-auth \
+        --client-id="$INFISICAL_CLIENT_ID_INPUT" \
+        --client-secret="$INFISICAL_CLIENT_SECRET_INPUT" || \
+    infisical login --method=machine-identity \
+        --client-id="$INFISICAL_CLIENT_ID_INPUT" \
+        --client-secret="$INFISICAL_CLIENT_SECRET_INPUT"
 fi

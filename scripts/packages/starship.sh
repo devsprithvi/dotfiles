@@ -2,29 +2,22 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 source "${SCRIPT_DIR}/../lib/common.sh"
 
 if has_command starship; then
-    echo "Starship is already installed."
+    echo "starship is already installed."
     exit 0
 fi
 
-case "${machine}" in
-    Windows)
-        if has_command scoop; then
-            scoop install starship
-        else
-            echo "Skipping Starship installation on Windows because Scoop is unavailable."
-        fi
-        ;;
-    *)
-        if ! has_command curl && ! has_command wget; then
-            echo "Skipping Starship installation because neither curl nor wget is available."
-            exit 0
-        fi
+if os_is_linux || os_is_macos; then
+    installer_url_sh "starship" "https://starship.rs/install.sh" -s -- -y -b "$HOME/.local/bin"
+elif os_is_windows; then
+    if has_command scoop; then
+        installer_scoop_install starship
+    else
+        echo "Cannot install starship on Windows: scoop required."
+        exit 1
+    fi
+fi
 
-        prepare_local_bin
-        download_to_stdout "https://starship.rs/install.sh" | sh -s -- -y -b "$HOME/.local/bin"
-        ;;
-esac
+echo "starship installed."

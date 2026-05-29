@@ -2,33 +2,23 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 source "${SCRIPT_DIR}/../lib/common.sh"
 
 if has_command sheldon; then
-    echo "Sheldon is already installed."
+    echo "sheldon is already installed."
     exit 0
 fi
 
-case "${machine}" in
-    Mac)
-        require_package_manager brew "Homebrew is not installed. Please install Homebrew first."
-        brew install sheldon
-        ;;
-    Windows)
-        if has_command scoop; then
-            scoop install sheldon
-        else
-            echo "Skipping Sheldon installation on Windows because Scoop is unavailable."
-        fi
-        ;;
-    *)
-        if ! has_command curl && ! has_command wget; then
-            echo "Skipping Sheldon installation because neither curl nor wget is available."
-            exit 0
-        fi
+if os_is_linux || os_is_macos; then
+    installer_url_bash "sheldon" "https://rossmacarthur.github.io/install/crate.sh" \
+        -s -- --repo rossmacarthur/sheldon --to "$HOME/.local/bin"
+elif os_is_windows; then
+    if has_command scoop; then
+        installer_scoop_install sheldon
+    else
+        echo "Cannot install sheldon on Windows: scoop required."
+        exit 1
+    fi
+fi
 
-        prepare_local_bin
-        download_to_stdout "https://rossmacarthur.github.io/install/crate.sh" | bash -s -- --repo rossmacarthur/sheldon --to "$HOME/.local/bin"
-        ;;
-esac
+echo "sheldon installed."

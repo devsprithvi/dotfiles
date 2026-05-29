@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+# ── Chezmoi run_once: Install all packages ──────────────────────────────────
+# Executed once by chezmoi during `chezmoi init --apply`.
+# Delegates to the core install-packages script.
+# ────────────────────────────────────────────────────────────────────────────
+
+SOURCE_DIR="{{ .chezmoi.sourceDir }}"
+
+bash "${SOURCE_DIR}/scripts/core/install-packages.sh"

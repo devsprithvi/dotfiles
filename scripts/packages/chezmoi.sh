@@ -2,33 +2,24 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 source "${SCRIPT_DIR}/../lib/common.sh"
 
 if has_command chezmoi; then
-    echo "Chezmoi is already installed."
+    echo "chezmoi is already installed."
     exit 0
 fi
 
-case "${machine}" in
-    Linux|Mac)
-        if ! has_command curl && ! has_command wget; then
-            echo "Skipping Chezmoi installation because neither curl nor wget is available."
-            exit 0
-        fi
+if os_is_linux || os_is_macos; then
+    installer_url_sh "chezmoi" "https://get.chezmoi.io" -s -- -b "$HOME/.local/bin"
+elif os_is_windows; then
+    if has_command scoop; then
+        installer_scoop_install chezmoi
+    elif has_command winget; then
+        installer_winget_install twpayne.chezmoi
+    else
+        echo "Cannot install chezmoi on Windows: scoop or winget required."
+        exit 1
+    fi
+fi
 
-        prepare_local_bin
-        download_to_stdout "https://get.chezmoi.io" | sh -s -- -b "$HOME/.local/bin"
-        ensure_local_bin_on_path
-        echo "Chezmoi installed to $HOME/.local/bin/chezmoi"
-        ;;
-    Windows)
-        if has_command winget; then
-            winget install twpayne.chezmoi
-        elif has_command scoop; then
-            scoop install chezmoi
-        else
-            echo "Skipping Chezmoi installation on Windows because neither winget nor Scoop is available."
-        fi
-        ;;
-esac
+echo "chezmoi installed."

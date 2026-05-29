@@ -53,10 +53,12 @@ fi
 # ── Step 3: Install chezmoi ─────────────────────────────────────────────────
 echo "[bootstrap] Installing chezmoi..."
 bash "${SCRIPT_DIR}/scripts/packages/chezmoi.sh"
+ensure_user_bin_in_path
 
 # ── Step 4: Install & authenticate infisical ────────────────────────────────
 echo "[bootstrap] Installing infisical..."
 bash "${SCRIPT_DIR}/scripts/packages/infisical.sh"
+ensure_user_bin_in_path
 
 # ── Step 5: Fetch PAT & initialize dotfiles ─────────────────────────────────
 # The dotfiles repo is private, so we fetch the GitHub PAT from Infisical

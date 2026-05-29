@@ -10,6 +10,7 @@ if has_command chezmoi; then
 fi
 
 if os_is_linux || os_is_macos; then
+    mkdir -p "$HOME/.local/bin"
     installer_url_sh "chezmoi" "https://get.chezmoi.io" -s -- -b "$HOME/.local/bin"
 elif os_is_windows; then
     if has_command scoop; then
@@ -21,5 +22,11 @@ elif os_is_windows; then
         exit 1
     fi
 fi
+ensure_user_bin_in_path
 
-echo "chezmoi installed."
+if has_command chezmoi; then
+    echo "chezmoi installed: $(command -v chezmoi)"
+else
+    echo "WARNING: chezmoi binary not found on PATH after install."
+    [[ -x "$HOME/.local/bin/chezmoi" ]] && echo "  File exists at ~/.local/bin/chezmoi but PATH may not include it."
+fi

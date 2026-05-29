@@ -10,6 +10,7 @@ if has_command sheldon; then
 fi
 
 if os_is_linux || os_is_macos; then
+    mkdir -p "$HOME/.local/bin"
     installer_url_bash "sheldon" "https://rossmacarthur.github.io/install/crate.sh" \
         -s -- --repo rossmacarthur/sheldon --to "$HOME/.local/bin"
 elif os_is_windows; then

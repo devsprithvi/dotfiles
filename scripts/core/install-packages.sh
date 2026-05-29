@@ -31,6 +31,8 @@ run_package() {
     echo ""
     echo "[packages] ── ${name} ──────────────────────"
     bash "${script}"
+    # Refresh PATH — the package may have installed to ~/.local/bin
+    ensure_user_bin_in_path
 }
 
 # ── System prerequisites (may need sudo) ────────────────────────────────────

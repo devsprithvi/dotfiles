@@ -10,7 +10,7 @@ if has_command starship; then
 fi
 
 if os_is_linux || os_is_macos; then
-    install_from_url "starship" "https://starship.rs/install.sh" -y -b "$HOME/.local/bin"
+    install_from_url "starship" "https://starship.rs/install.sh" --shell sh -y -b "$HOME/.local/bin"
 elif os_is_windows; then
     if has_command scoop; then
         installer_scoop_install starship

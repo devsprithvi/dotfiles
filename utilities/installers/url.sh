@@ -13,13 +13,19 @@ fetch_url() {
     fi
 }
 
-# Download and execute a shell installation script on macOS/Linux using bash
+# Download and execute a shell installation script on macOS/Linux
 install_from_url() {
     local tool_name="$1" url="$2"
     shift 2
 
+    local shell_bin="bash"
+    if [[ "$1" == "--shell" ]]; then
+        shell_bin="$2"
+        shift 2
+    fi
+
     echo "[installer] Installing ${tool_name} from URL..."
-    fetch_url "${url}" | bash -s -- "$@"
+    fetch_url "${url}" | "${shell_bin}" -s -- "$@"
 }
 
 # Download and execute a PowerShell script on Windows

@@ -2,7 +2,7 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../lib/common.sh"
+source "${SCRIPT_DIR}/../utilities/index.sh"
 
 # git is typically pre-installed, but we ensure it is available
 # and configured at the user level.
@@ -25,23 +25,14 @@ elif os_is_windows; then
         exit 1
     fi
 elif os_is_linux; then
-    if ! can_run_privileged; then
-        echo "git requires root or sudo to install. Skipping."
-        exit 0
-    fi
-
     if os_distro_like debian; then
-        export DEBIAN_FRONTEND=noninteractive
-        run_privileged apt-get update -qq
-        run_privileged apt-get install -y -qq git
+        installer_apt_install git
     elif os_distro_like fedora || os_distro_like rhel; then
-        run_privileged dnf install -y git
+        installer_dnf_install git
     elif os_distro_like arch; then
-        run_privileged pacman -Sy --noconfirm --needed git
+        installer_pacman_install git
     elif os_distro_like alpine; then
-        run_privileged apk add --no-cache git
-    elif os_distro_like suse; then
-        run_privileged zypper --non-interactive install git
+        installer_apk_install git
     else
         echo "Unknown distro '${OS_DISTRO}'. Cannot install git automatically."
         exit 1

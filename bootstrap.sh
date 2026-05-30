@@ -1,108 +1,129 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# ── Bootstrap ───────────────────────────────────────────────────────────────
-# Entry point for a fresh machine.
-# Installs curl, git, chezmoi, and infisical, then fetches the GitHub PAT
-# from Infisical and runs `chezmoi init --apply` with inline auth to clone
-# the private dotfiles repo seamlessly.
-# All other tools are installed by chezmoi run_once scripts, NOT here.
+# ────────────────────────────────────────────────────────────────────────────
+# ── Configuration ───────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
 
 GITHUB_USER="devsprithvi"
 DOTFILES_REPO="dotfiles"
+BIN_DIR="$HOME/.local/bin"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ────────────────────────────────────────────────────────────────────────────
+# ── Helper Functions ────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 
-source "${SCRIPT_DIR}/scripts/lib/common.sh"
+# Check if a specific command is available in the current environment
+has_command() {
+    command -v "$1" >/dev/null 2>&1
+}
 
-echo ""
-echo "╔══════════════════════════════════════════╗"
-echo "║       Dotfiles Bootstrap                 ║"
-echo "╚══════════════════════════════════════════╝"
-echo ""
+# Ensure user's local binary directory exists and is at the front of PATH
+setup_path() {
+    mkdir -p "$BIN_DIR"
+    export PATH="$BIN_DIR:$PATH"
+}
 
-os_print_summary
+# ────────────────────────────────────────────────────────────────────────────
+# ── Package Installations ───────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 
-# ── Step 1: Install curl ───────────────────────────────────────────────────
-# curl is needed to download chezmoi and other installers.
-if ! has_command curl; then
-    echo "[bootstrap] curl not found. Installing..."
-    bash "${SCRIPT_DIR}/scripts/packages/curl.sh"
-fi
+# Install curl using the system package manager (fallback if curl is missing)
+install_curl() {
+    echo "[bootstrap] curl not found. Attempting auto-installation..."
+    
+    if has_command apt-get; then
+        sudo apt-get update -qq && sudo apt-get install -y -qq curl
+    elif has_command dnf; then
+        sudo dnf install -y curl
+    elif has_command pacman; then
+        sudo pacman -Sy --noconfirm --needed curl
+    elif has_command apk; then
+        sudo apk add --no-cache curl
+    elif has_command zypper; then
+        sudo zypper --non-interactive install curl
+    else
+        echo "ERROR: curl is not installed and no supported package manager was found." >&2
+        echo "Please install curl manually and run this script again." >&2
+        exit 1
+    fi
+    
+    if ! has_command curl; then
+        echo "ERROR: Failed to install curl. Cannot continue." >&2
+        exit 1
+    fi
+}
 
-if ! has_command curl; then
+# Detect or install chezmoi on the system
+install_chezmoi() {
+    # If chezmoi is already available on PATH, we are good to go
+    if has_command chezmoi; then
+        echo "[bootstrap] chezmoi is already installed."
+        return 0
+    fi
+
+    # Fallback check in case chezmoi exists in local bin but PATH isn't updated yet
+    if [[ -x "$BIN_DIR/chezmoi" ]]; then
+        echo "[bootstrap] chezmoi is already installed at $BIN_DIR/chezmoi."
+        return 0
+    fi
+
+    echo "[bootstrap] chezmoi not found. Installing to $BIN_DIR..."
+    
+    # We require curl to download chezmoi from the installer URL
+    if ! has_command curl; then
+        install_curl
+    fi
+
+    curl -fsSL https://get.chezmoi.io | sh -s -- -b "$BIN_DIR"
+    
+    if [[ ! -x "$BIN_DIR/chezmoi" ]] && ! has_command chezmoi; then
+        echo "ERROR: chezmoi was not installed successfully." >&2
+        exit 1
+    fi
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# ── Chezmoi Initialization ──────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+
+# Initialize and apply the chezmoi dotfiles repository
+init_dotfiles() {
+    echo "[bootstrap] Initializing dotfiles with chezmoi..."
+    
+    local repo_url="https://github.com/${GITHUB_USER}/${DOTFILES_REPO}.git"
+    local chezmoi_bin="chezmoi"
+
+    if [[ -x "$BIN_DIR/chezmoi" ]]; then
+        chezmoi_bin="$BIN_DIR/chezmoi"
+    fi
+
+    # Apply the dotfiles repository directly using chezmoi
+    "$chezmoi_bin" init --apply "$repo_url"
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# ── Main Execution Flow ─────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+
+main() {
     echo ""
-    echo "ERROR: Failed to install curl. Cannot continue."
-    exit 1
-fi
-
-# ── Step 2: Install git ────────────────────────────────────────────────────
-# git is needed by chezmoi to clone the dotfiles repo.
-if ! has_command git; then
-    echo "[bootstrap] git not found. Installing..."
-    bash "${SCRIPT_DIR}/scripts/packages/git.sh"
-fi
-
-if ! has_command git; then
+    echo "╔══════════════════════════════════════════╗"
+    echo "║       Dotfiles Bootstrap                 ║"
+    echo "╚══════════════════════════════════════════╝"
     echo ""
-    echo "ERROR: Failed to install git. Cannot continue."
-    exit 1
-fi
 
-# ── Step 3: Install chezmoi ─────────────────────────────────────────────────
-if ! has_command chezmoi; then
-    echo "[bootstrap] chezmoi not found. Installing..."
-    bin_dir="$HOME/.local/bin"
-    mkdir -p "$bin_dir"
-    curl -fsSL https://get.chezmoi.io | sh -s -- -b "$bin_dir"
-else
-    echo "[bootstrap] chezmoi is already installed."
-fi
+    setup_path
+    install_chezmoi
+    init_dotfiles
 
-# Ensure ~/.local/bin is on PATH for the rest of this session
-export PATH="$HOME/.local/bin:$PATH"
-
-# ── Step 4: Install & authenticate infisical ────────────────────────────────
-echo "[bootstrap] Installing infisical..."
-bash "${SCRIPT_DIR}/scripts/packages/infisical.sh"
-
-# ── Step 5: Fetch PAT & initialize dotfiles ─────────────────────────────────
-# The dotfiles repo is private, so we fetch the GitHub PAT from Infisical
-# and pass it inline in the clone URL. This avoids needing git credentials
-# or gh auth to be configured before the first clone.
-echo ""
-echo "[bootstrap] Fetching GitHub PAT from Infisical..."
-
-GH_TOKEN=$(infisical secrets get ADMIN_PAT --env global --path /github --plain 2>/dev/null || true)
-
-if [[ -z "${GH_TOKEN}" ]]; then
     echo ""
-    echo "ERROR: Could not retrieve GitHub PAT from Infisical."
-    echo "Ensure infisical is authenticated and ADMIN_PAT is set at /github."
-    exit 1
-fi
-
-REPO_URL="https://${GH_TOKEN}@github.com/${GITHUB_USER}/${DOTFILES_REPO}.git"
-
-echo "[bootstrap] Initializing dotfiles with chezmoi..."
-
-I could find a progress in if has_command chezmoi; then
-    chezmoi init --apply "${REPO_URL}"
-elif [[ -x "$HOME/.local/bin/chezmoi" ]]; then
-    "$HOME/.local/bin/chezmoi" init --apply "${REPO_URL}"
-else
+    echo "╔══════════════════════════════════════════╗"
+    echo "║       Bootstrap complete!                ║"
+    echo "║       Open a new shell to continue.      ║"
+    echo "╚══════════════════════════════════════════╝"
     echo ""
-    echo "ERROR: chezmoi was not installed successfully."
-    exit 1
-fi
+}
 
-# Clean up sensitive variable
-unset GH_TOKEN REPO_URL
+main "$@"
 
-echo ""
-echo "╔══════════════════════════════════════════╗"
-echo "║       Bootstrap complete!                ║"
-echo "║       Open a new shell to continue.      ║"
-echo "╚══════════════════════════════════════════╝"
-echo ""

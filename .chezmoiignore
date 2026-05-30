@@ -1,3 +1,4 @@
 bootstrap.sh
-scripts/
+utilities/
+packages/
 doc/

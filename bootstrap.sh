@@ -18,6 +18,18 @@ has_command() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Run a command with privilege (root or sudo) if available
+run_privileged() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        echo "ERROR: Root privileges are required but sudo is not installed." >&2
+        return 127
+    fi
+}
+
 # Ensure user's local binary directory exists and is at the front of PATH
 setup_path() {
     mkdir -p "$BIN_DIR"
@@ -33,15 +45,15 @@ install_curl() {
     echo "[bootstrap] curl not found. Attempting auto-installation..."
     
     if has_command apt-get; then
-        sudo apt-get update -qq && sudo apt-get install -y -qq curl
+        run_privileged apt-get update -qq && run_privileged apt-get install -y -qq curl
     elif has_command dnf; then
-        sudo dnf install -y curl
+        run_privileged dnf install -y curl
     elif has_command pacman; then
-        sudo pacman -Sy --noconfirm --needed curl
+        run_privileged pacman -Sy --noconfirm --needed curl
     elif has_command apk; then
-        sudo apk add --no-cache curl
+        run_privileged apk add --no-cache curl
     elif has_command zypper; then
-        sudo zypper --non-interactive install curl
+        run_privileged zypper --non-interactive install curl
     else
         echo "ERROR: curl is not installed and no supported package manager was found." >&2
         echo "Please install curl manually and run this script again." >&2

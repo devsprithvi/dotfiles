@@ -11,9 +11,10 @@ To seamlessly install Chezmoi and apply these dotfiles on any new Debian/Ubuntu,
 sh -c "$(curl -fsSL https://get.chezmoi.io)" -- -b "$HOME/.local/bin"
 ```
 
-### 2. Initialize and Apply
+### 2. Add to PATH and Apply
 ```bash
-$HOME/.local/bin/chezmoi init --apply https://github.com/devsprithvi/dotfiles.git
+export PATH="$HOME/.local/bin:$PATH"
+chezmoi init --apply https://github.com/devsprithvi/dotfiles.git
 ```
 
 ---

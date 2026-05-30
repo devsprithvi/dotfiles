@@ -12,7 +12,18 @@ fi
 if os_is_macos; then
     installer_brew_install gh
 elif os_is_linux; then
-    install_from_url "gh" "https://raw.githubusercontent.com/cli/cli/trunk/install.sh"
+    if has_command apt-get; then
+        installer_apt_install gh
+    elif has_command dnf; then
+        installer_dnf_install gh
+    elif has_command pacman; then
+        installer_pacman_install gh
+    elif has_command apk; then
+        installer_apk_install gh
+    else
+        echo "ERROR: No supported package manager found to install gh on Linux." >&2
+        exit 1
+    fi
 elif os_is_windows; then
     if has_command scoop; then
         installer_scoop_install gh

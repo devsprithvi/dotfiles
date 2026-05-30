@@ -1,7 +1,8 @@
 github.com:
     users:
         devsprithvi:
-            oauth_token: {{ output "infisical" "secrets" "get" "ADMIN_PAT" "--env" "global" "--path" "/github" "--plain" | trim }}
+            oauth_token: {{ if lookPath "infisical" }}{{ output "infisical" "secrets" "get" "ADMIN_PAT" "--env" "global" "--path" "/github" "--plain" | trim }}{{ else }}""{{ end }}
     git_protocol: https
-    oauth_token: {{ output "infisical" "secrets" "get" "ADMIN_PAT" "--env" "global" "--path" "/github" "--plain" | trim }}
+    oauth_token: {{ if lookPath "infisical" }}{{ output "infisical" "secrets" "get" "ADMIN_PAT" "--env" "global" "--path" "/github" "--plain" | trim }}{{ else }}""{{ end }}
     user: devsprithvi
+

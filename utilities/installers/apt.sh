@@ -16,6 +16,7 @@ installer_apt_install() {
     fi
 
     echo "[installer] Installing ${package_name} via apt..."
-    run_privileged apt-get install -y -qq "${package_name}"
+    run_privileged apt-get install -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "${package_name}"
 }
+
 

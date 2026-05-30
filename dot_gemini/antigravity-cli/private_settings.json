@@ -1,0 +1,6 @@
+{
+  "model": "Gemini 3.5 Flash (High)",
+  "trustedWorkspaces": [
+    "/workspaces/aimawa"
+  ]
+}

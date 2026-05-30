@@ -11,7 +11,7 @@ fi
 
 if os_is_linux || os_is_macos; then
     install_from_url "sheldon" "https://rossmacarthur.github.io/install/crate.sh" \
-        -s -- --repo rossmacarthur/sheldon --to "$HOME/.local/bin"
+        --repo rossmacarthur/sheldon --to "$HOME/.local/bin"
 elif os_is_windows; then
     if has_command scoop; then
         installer_scoop_install sheldon

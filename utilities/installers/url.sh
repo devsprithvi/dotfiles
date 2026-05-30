@@ -19,7 +19,7 @@ install_from_url() {
     shift 2
 
     echo "[installer] Installing ${tool_name} from URL..."
-    fetch_url "${url}" | sh -s -- "$@"
+    fetch_url "${url}" | bash -s -- "$@"
 }
 
 # Download and execute a PowerShell script on Windows

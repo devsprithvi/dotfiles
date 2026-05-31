@@ -96,6 +96,39 @@ install_chezmoi() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
+# ── Infisical Authentication ────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+
+# Authenticate Infisical if Machine Identity credentials exist in the environment
+authenticate_infisical() {
+    if [[ -n "$INFISICAL_CLIENT_ID" ]] && [[ -n "$INFISICAL_CLIENT_SECRET" ]]; then
+        echo "[bootstrap] Infisical Machine Identity credentials detected. Authenticating..."
+        
+        # We require curl to communicate with the Infisical API
+        if ! has_command curl; then
+            install_curl
+        fi
+        
+        # Perform dynamic login using curl and parse the token with python3
+        local token
+        token=$(curl -s -X POST https://app.infisical.com/api/v1/auth/universal-auth/login \
+            -H "Content-Type: application/json" \
+            -d "{\"clientId\": \"$INFISICAL_CLIENT_ID\", \"clientSecret\": \"$INFISICAL_CLIENT_SECRET\"}" \
+            | python3 -c "import sys, json; print(json.load(sys.stdin).get('accessToken', ''))" 2>/dev/null || true)
+        
+        if [[ -n "$token" ]]; then
+            export INFISICAL_TOKEN="$token"
+            export INFISICAL_PROJECT_ID="e3e7a48d-605a-4ae2-b202-2dbf45918227"
+            echo "[bootstrap] Successfully authenticated with Infisical."
+        else
+            echo "[bootstrap] WARNING: Failed to obtain Infisical token." >&2
+        fi
+    else
+        echo "[bootstrap] No Infisical credentials found in environment. Skipping secret manager auth."
+    fi
+}
+
+# ────────────────────────────────────────────────────────────────────────────
 # ── Chezmoi Initialization ──────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -127,6 +160,7 @@ main() {
 
     setup_path
     install_chezmoi
+    authenticate_infisical
     init_dotfiles
 
     echo ""
@@ -138,4 +172,3 @@ main() {
 }
 
 main "$@"
-

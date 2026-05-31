@@ -4,3 +4,9 @@
 export PATH="$HOME/.local/bin:$PATH"
 eval "$(sheldon --config-file ~/.config/sheldon/zsh.toml source)"
 eval "$(starship init zsh)"
+
+# ── Infisical Secret Manager ──────────────────────────────────────────────────
+if [ -n "$INFISICAL_CLIENT_ID" ] && [ -n "$INFISICAL_CLIENT_SECRET" ] && [ -z "$INFISICAL_TOKEN" ]; then
+    export INFISICAL_PROJECT_ID="e3e7a48d-605a-4ae2-b202-2dbf45918227"
+    export INFISICAL_TOKEN=$(curl -s -X POST https://app.infisical.com/api/v1/auth/universal-auth/login -H "Content-Type: application/json" -d "{\"clientId\": \"$INFISICAL_CLIENT_ID\", \"clientSecret\": \"$INFISICAL_CLIENT_SECRET\"}" | python3 -c "import sys, json; print(json.load(sys.stdin).get('accessToken', ''))" 2>/dev/null)
+fi

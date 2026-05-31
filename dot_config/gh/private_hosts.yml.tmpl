@@ -1,11 +1,18 @@
 {{- $token := "" -}}
-{{- if lookPath "infisical" -}}
+{{- $clientId := env "INFISICAL_CLIENT_ID" -}}
+{{- $clientSecret := env "INFISICAL_CLIENT_SECRET" -}}
+{{- $projectId := "e3e7a48d-605a-4ae2-b202-2dbf45918227" -}}
+
+{{- if and $clientId $clientSecret -}}
   {{- if eq .chezmoi.os "windows" -}}
-    {{- $token = output "powershell" "-NoProfile" "-Command" "$ErrorActionPreference = 'SilentlyContinue'; infisical secrets get ADMIN_PAT --env global --path /github --plain 2>$null || echo -n ''" | trim -}}
+    {{- $secretFetchCmd := printf "$token = (Invoke-RestMethod -Method Post -Uri 'https://app.infisical.com/api/v1/auth/universal-auth/login' -ContentType 'application/json' -Body '{\"clientId\":\"%s\",\"clientSecret\":\"%s\"}').accessToken; (Invoke-RestMethod -Method Get -Uri 'https://app.infisical.com/api/v3/secrets/raw?environment=global&secretPath=%%2Fgithub&workspaceId=%s' -Headers @{Authorization=\"Bearer $token\"}).secrets | Where-Object { $_.secretKey -eq 'ADMIN_PAT' } | Select-Object -ExpandProperty secretValue" $clientId $clientSecret $projectId -}}
+    {{- $token = output "powershell" "-NoProfile" "-Command" $secretFetchCmd | trim -}}
   {{- else -}}
-    {{- $token = output "sh" "-c" "infisical secrets get ADMIN_PAT --env global --path /github --plain 2>/dev/null || echo -n ''" | trim -}}
+    {{- $secretFetchCmd := printf "TOKEN=$(curl -s -X POST https://app.infisical.com/api/v1/auth/universal-auth/login -H 'Content-Type: application/json' -d '{\"clientId\": \"%s\", \"clientSecret\": \"%s\"}' | python3 -c \"import sys, json; print(json.load(sys.stdin).get('accessToken', ''))\" 2>/dev/null) && curl -s -X GET 'https://app.infisical.com/api/v3/secrets/raw?environment=global&secretPath=%%2Fgithub&workspaceId=%s' -H \"Authorization: Bearer $TOKEN\" | python3 -c \"import sys, json; print(next((s['secretValue'] for s in json.load(sys.stdin).get('secrets', []) if s['secretKey'] == 'ADMIN_PAT'), ''))\" 2>/dev/null" $clientId $clientSecret $projectId -}}
+    {{- $token = output "sh" "-c" $secretFetchCmd | trim -}}
   {{- end -}}
 {{- end -}}
+
 github.com:
     users:
         devsprithvi:
@@ -13,4 +20,3 @@ github.com:
     git_protocol: https
     oauth_token: {{ $token | quote }}
     user: devsprithvi
-

@@ -41,14 +41,14 @@ Once initialized, the automated bootstrapping process will silently and non-inte
 
 This setup securely retrieves credentials (e.g., GitHub tokens) via **Infisical**, completely bypassing limited container environment tokens to avoid `403 Forbidden` push errors.
 
-### 1. Automated Bootstrap Authentication
-The `bootstrap.sh` script automatically detects `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET` in your shell environment. If present, it performs a dynamic Universal Auth login and sets the correct workspace context (`INFISICAL_PROJECT_ID`), allowing `chezmoi init --apply` to seamlessly populate your git configuration on its very first run.
+### 1. On-The-Fly Template Resolution (Native Chezmoi)
+The chezmoi template `private_hosts.yml.tmpl` automatically detects `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET` in the active shell environment. If present during execution, it runs a dynamic `curl` pipeline to perform a Universal Auth login to the Infisical API, fetches your secrets, and retrieves the GitHub administrative token (`ADMIN_PAT`) natively on-the-fly. This keeps the bootstrap script (`bootstrap.sh`) 100% minimal and simple.
 
 ### 2. Dynamic Shell Integration
 Your `.bashrc` and `.zshrc` shell configurations are enhanced with an automated startup sequence:
 *   When a new shell session initializes, it dynamically authenticates with Infisical.
 *   It exposes `INFISICAL_TOKEN` and `INFISICAL_PROJECT_ID` variables to your environment.
-*   Any future `chezmoi apply` or `chezmoi update` commands automatically inherit these credentials, ensuring GitHub credentials (`ADMIN_PAT`) are always up-to-date and valid.
+*   Any future interactive shell operations can utilize these credentials directly.
 
 ### 3. Safe Fallback Mode
 If no Infisical credentials are found in the environment, the templates gracefully fall back to empty strings `""` without throwing execution errors, keeping the bootstrap 100% automated and non-interactive.

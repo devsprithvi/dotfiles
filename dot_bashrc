@@ -1,13 +1,30 @@
-# ── PATH Configuration ────────────────────────────────────────────────────────
+# ==============================================================================
+# 🌌 Prudhvi's Dotfiles — Interactive Bash Configuration (~/.bashrc)
+# ==============================================================================
+
+# ── 1. PATH Configuration ─────────────────────────────────────────────────────
+# Appends user-local binaries to the system PATH. This ensures custom installed 
+# binaries (such as chezmoi and sheldon) take precedence over system defaults.
 export PATH="$HOME/.local/bin:$PATH"
 
-# ── Starship Prompt ──────────────────────────────────────────────────────────
+# ── 2. Prompt Customization (Starship) ────────────────────────────────────────
+# Initializes Starship cross-shell prompt if the starship binary is available.
 if command -v starship >/dev/null 2>&1; then
     eval "$(starship init bash)"
 fi
 
-# ── Infisical Secret Manager ──────────────────────────────────────────────────
+# ── 3. Secret Management (Infisical Automation) ────────────────────────────────
+# Automatically authenticates your terminal session with the Infisical secret vault 
+# using the Machine Identity credentials injected by the container environment.
+# Once authenticated, the exported INFISICAL_TOKEN allows native, non-interactive 
+# credentials resolution for git operations and chezmoi templates.
 if [ -n "$INFISICAL_CLIENT_ID" ] && [ -n "$INFISICAL_CLIENT_SECRET" ] && [ -z "$INFISICAL_TOKEN" ]; then
+    # Target workspace ID (nucleus project)
     export INFISICAL_PROJECT_ID="e3e7a48d-605a-4ae2-b202-2dbf45918227"
-    export INFISICAL_TOKEN=$(curl -s -X POST https://app.infisical.com/api/v1/auth/universal-auth/login -H "Content-Type: application/json" -d "{\"clientId\": \"$INFISICAL_CLIENT_ID\", \"clientSecret\": \"$INFISICAL_CLIENT_SECRET\"}" | python3 -c "import sys, json; print(json.load(sys.stdin).get('accessToken', ''))" 2>/dev/null)
+    
+    # Non-interactive Universal Auth login via API loopback
+    export INFISICAL_TOKEN=$(curl -s -X POST https://app.infisical.com/api/v1/auth/universal-auth/login \
+        -H "Content-Type: application/json" \
+        -d "{\"clientId\": \"$INFISICAL_CLIENT_ID\", \"clientSecret\": \"$INFISICAL_CLIENT_SECRET\"}" \
+        | python3 -c "import sys, json; print(json.load(sys.stdin).get('accessToken', ''))" 2>/dev/null)
 fi

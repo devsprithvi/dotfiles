@@ -76,7 +76,7 @@ details.
 ### Core Tools (Default)
 Applied automatically during bootstrap without manual intervention:
 * **Shell & Prompt**: Zsh, Starship cross-shell prompt, and Sheldon plugin manager.
-* **Developer Tools**: Git, GitHub CLI (`gh`), and Antigravity CLI.
+* **Developer Tools**: Git, GitHub CLI (`gh`), Antigravity CLI, and OpenCode (terminal AI coding agent).
 * **Secret Management**: Infisical CLI.
 
 ### Controlled / Optional Tools
@@ -369,7 +369,7 @@ bootstrap.sh                                   # opens the run log; exports DOTF
         └─→ .chezmoiscripts/run_onchange_install-packages.sh.tmpl   (re-runs when any packages/*.sh changes)
               └─→ packages/index.sh                    (install only)
                     ├── 1. System Prerequisites (git, curl, zsh)
-                    ├── 2. User-Level Tools     (starship, sheldon, gh, infisical, antigravity)
+                    ├── 2. User-Level Tools     (starship, sheldon, gh, infisical, antigravity, opencode)
                     └── 3. Controlled Tools     (vscode_cli, devtunnel, tailscale)
 
 # Run (by hand):

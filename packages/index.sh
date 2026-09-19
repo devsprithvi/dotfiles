@@ -54,6 +54,7 @@ run_package "sheldon"
 run_package "gh"
 run_package "infisical"
 run_package "antigravity_cli"
+run_package "opencode"
 
 # ── 3. Optional / controlled tools (env-var gated) ──────────────────────────
 # These packages only install when their corresponding ENABLE_* env var is set.

@@ -12,6 +12,7 @@ LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ── Step 1: Load Core System & Helper Libraries ─────────────────────────────
 source "${LIB_DIR}/os.sh"
 source "${LIB_DIR}/helpers.sh"
+source "${LIB_DIR}/service_manager.sh"
 
 # ── Step 2: Load Installer Modules ──────────────────────────────────────────
 # Generic, reusable package-manager wrappers. Each module provides a thin

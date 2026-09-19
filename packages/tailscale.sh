@@ -2,15 +2,15 @@
 set -eo pipefail
 
 # ────────────────────────────────────────────────────────────────────────────
-# ── Package: Tailscale ──────────────────────────────────────────────────────
+# ── Package: Tailscale (install only) ───────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
-# Installs the Tailscale VPN/mesh networking client and optionally
-# authenticates + connects using an auth key from Infisical.
+# Installs the Tailscale VPN/mesh networking client.
 #
-# Control:  ENABLE_TAILSCALE=1           to install (optional, off by default)
-# Auth:     TAILSCALE_AUTHKEY env var    direct auth key (highest priority)
-#           — or —
-#           Infisical secret "TAILSCALE_AUTHKEY" at /tailscale (auto-fetched)
+# Boundary: this script ONLY installs. Authenticating and connecting to a
+# tailnet ("tailscale up") is a runtime action: services/index.sh run tailscale:up
+# (via the generic runner services/run.sh + presets.sh).
+#
+# Control: ENABLE_TAILSCALE=1 to install (optional, off by default)
 # ────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,33 +22,40 @@ if [[ -z "${ENABLE_TAILSCALE:-}" ]]; then
     exit 0
 fi
 
-# ── Install ────────────────────────────────────────────────────────────────
 if has_command tailscale; then
     echo "tailscale is already installed."
-else
-    install_tailscale
+    exit 0
 fi
 
-# ── Optional: auto-connect with auth key ───────────────────────────────────
-# An auth key allows fully non-interactive "tailscale up" on headless machines.
-# Priority: env var > Infisical secret
-auth_key="${TAILSCALE_AUTHKEY:-}"
-
-if [[ -z "$auth_key" ]]; then
-    auth_key="$(fetch_infisical_secret "TAILSCALE_AUTHKEY" "global" "/tailscale" 2>/dev/null || true)"
-fi
-
-if [[ -n "$auth_key" ]]; then
-    # Check if already connected — don't re-auth unnecessarily
-    if tailscale status >/dev/null 2>&1; then
-        echo "[tailscale] Already connected to tailnet."
-    else
-        tailscale_up "$auth_key"
-        echo "[tailscale] Connected to tailnet."
+if os_is_linux; then
+    # The official installer detects the distro and configures the repo + daemon.
+    if ! can_run_privileged; then
+        echo "ERROR: root/sudo required to install tailscale." >&2
+        exit 1
     fi
-else
-    echo "[tailscale] No auth key found. Run 'sudo tailscale up' manually to authenticate."
+    echo "[tailscale] Installing via official installer..."
+    if has_command curl; then
+        curl -fsSL https://tailscale.com/install.sh | run_privileged sh
+    elif has_command wget; then
+        wget -qO- https://tailscale.com/install.sh | run_privileged sh
+    else
+        echo "ERROR: curl or wget required to install tailscale." >&2
+        exit 1
+    fi
+elif os_is_macos; then
+    if has_command brew; then
+        installer_brew_install tailscale
+    else
+        echo "ERROR: Homebrew required to install tailscale on macOS (or use the App Store app)." >&2
+        exit 1
+    fi
+elif os_is_windows; then
+    if has_command winget; then
+        installer_winget_install "tailscale.tailscale"
+    else
+        echo "Cannot install tailscale on Windows: winget required."
+        exit 1
+    fi
 fi
 
-echo "tailscale setup complete."
-
+echo "tailscale installed."

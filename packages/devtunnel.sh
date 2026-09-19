@@ -2,14 +2,15 @@
 set -eo pipefail
 
 # ────────────────────────────────────────────────────────────────────────────
-# ── Package: Microsoft Dev Tunnel ───────────────────────────────────────────
+# ── Package: Microsoft Dev Tunnel (install only) ────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
 # Installs Microsoft's standalone Dev Tunnels CLI binary (~/.local/bin/devtunnel).
-# Used for port forwarding, remote access, and tunneling independently from VS Code.
+#
+# Boundary: this script ONLY installs. Authenticating and hosting ports are
+# runtime actions: services/index.sh run devtunnel:host
+# (via the generic runner services/run.sh + presets.sh).
 #
 # Control: ENABLE_DEVTUNNEL=1 (or ENABLE_DEV_TUNNEL=1) to install
-# Auth:    Optional non-interactive login if DEVTUNNEL_TOKEN or GITHUB_PAT
-#          is available in environment or Infisical.
 # ────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,12 +29,12 @@ if [[ -x "$DEST" ]] || has_command devtunnel; then
     exit 0
 fi
 
+# ── Windows: use winget ─────────────────────────────────────────────────────
 if os_is_windows; then
     if has_command winget; then
         installer_winget_install "Microsoft.devtunnel"
     else
         echo "Skipping devtunnel on Windows: winget required."
-        exit 0
     fi
     exit 0
 fi
@@ -46,71 +47,46 @@ if os_is_linux && can_run_privileged; then
     fi
 fi
 
-# ── Platform & architecture asset URL mapping ──────────────────────────────
-base_url="https://tunnelsassetsprod.blob.core.windows.net/cli"
-asset_name=""
-
+# ── Platform & architecture asset mapping ──────────────────────────────────
+asset=""
 if os_is_linux; then
-    case "${OS_ARCH}" in
-        x86_64)         asset_name="linux-x64-devtunnel" ;;
-        aarch64|arm64)  asset_name="linux-arm64-devtunnel" ;;
+    case "${OS_ARCH_ALT}" in
+        amd64) asset="linux-x64-devtunnel" ;;
+        arm64) asset="linux-arm64-devtunnel" ;;
         *)
             echo "ERROR: Unsupported Linux architecture (${OS_ARCH})." >&2
             exit 1
             ;;
     esac
 elif os_is_macos; then
-    case "${OS_ARCH}" in
-        x86_64)         asset_name="osx-x64-devtunnel" ;;
-        aarch64|arm64)  asset_name="osx-arm64-devtunnel" ;;
+    case "${OS_ARCH_ALT}" in
+        amd64) asset="osx-x64-devtunnel" ;;
+        arm64) asset="osx-arm64-devtunnel" ;;
         *)
             echo "ERROR: Unsupported macOS architecture (${OS_ARCH})." >&2
             exit 1
             ;;
     esac
-else
-    echo "Skipping devtunnel — unsupported platform (${OS_FAMILY})."
-    exit 0
 fi
 
-download_url="${base_url}/${asset_name}"
-mkdir -p "$HOME/.local/bin"
+url="https://tunnelsassetsprod.blob.core.windows.net/cli/${asset}"
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
-echo "[devtunnel] Downloading Microsoft Dev Tunnels CLI (${asset_name})..."
-if ! curl -fsSL "$download_url" -o "$tmp"; then
-    echo "ERROR: Failed to download devtunnel from $download_url" >&2
+echo "[devtunnel] Downloading Microsoft Dev Tunnels CLI (${asset})..."
+if ! curl -fsSL "$url" -o "$tmp"; then
+    echo "ERROR: Failed to download devtunnel from $url" >&2
     exit 1
 fi
 
+mkdir -p "$HOME/.local/bin"
 mv "$tmp" "$DEST"
 chmod +x "$DEST"
 
-# ── Verify ─────────────────────────────────────────────────────────────────
 if "$DEST" --version >/dev/null 2>&1; then
     version="$("$DEST" --version 2>/dev/null | head -n 1)"
     echo "devtunnel installed (${version:-ok})."
 else
-    echo "WARNING: devtunnel binary installed at $DEST but verification exited non-zero." >&2
+    echo "WARNING: devtunnel installed at $DEST but verification exited non-zero." >&2
     echo "devtunnel installed (unverified)."
 fi
-
-# ── Optional: Authenticate if token/PAT is provided ────────────────────────
-token="${DEVTUNNEL_TOKEN:-}"
-if [[ -z "$token" ]]; then
-    token="$(fetch_infisical_secret "DEVTUNNEL_TOKEN" "global" "/tunnels" 2>/dev/null || true)"
-fi
-if [[ -z "$token" ]]; then
-    token="$(fetch_infisical_secret "GITHUB_VSCODE_PAT" "global" "/github" 2>/dev/null || true)"
-fi
-
-if [[ -n "$token" ]]; then
-    echo "[devtunnel] Authenticating with access token..."
-    "$DEST" user login -d --access-token "$token" 2>/dev/null || {
-        echo "[devtunnel] Note: Non-interactive token login attempted. Run 'devtunnel user login' if needed."
-    }
-else
-    echo "[devtunnel] Ready. Run 'devtunnel user login' to authenticate with GitHub or Microsoft."
-fi
-

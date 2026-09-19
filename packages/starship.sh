@@ -3,9 +3,10 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "starship"
 
 if has_command starship; then
-    echo "starship is already installed."
+    log_info "starship is already installed."
     exit 0
 fi
 
@@ -15,9 +16,8 @@ elif os_is_windows; then
     if has_command scoop; then
         installer_scoop_install starship
     else
-        echo "Cannot install starship on Windows: scoop required."
-        exit 1
+        log_fatal "Cannot install starship on Windows: scoop required."
     fi
 fi
 
-echo "starship installed."
+log_success "starship installed."

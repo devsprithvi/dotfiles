@@ -3,12 +3,13 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "git"
 
 # git is typically pre-installed, but we ensure it is available
 # and configured at the user level.
 
 if has_command git; then
-    echo "git is already installed."
+    log_info "git is already installed."
     exit 0
 fi
 
@@ -21,8 +22,7 @@ elif os_is_windows; then
     elif has_command winget; then
         installer_winget_install Git.Git
     else
-        echo "Cannot install git on Windows: scoop or winget required."
-        exit 1
+        log_fatal "Cannot install git on Windows: scoop or winget required."
     fi
 elif os_is_linux; then
     if os_distro_like debian; then
@@ -34,9 +34,8 @@ elif os_is_linux; then
     elif os_distro_like alpine; then
         installer_apk_install git
     else
-        echo "Unknown distro '${OS_DISTRO}'. Cannot install git automatically."
-        exit 1
+        log_fatal "Unknown distro '${OS_DISTRO}'. Cannot install git automatically."
     fi
 fi
 
-echo "git installed."
+log_success "git installed."

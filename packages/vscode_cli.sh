@@ -16,10 +16,11 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "vscode-cli"
 
 # ── Gate: opt-in only ──────────────────────────────────────────────────────
 if [[ -z "${ENABLE_VSCODE_CLI:-}" ]]; then
-    echo "vscode cli skipped (set ENABLE_VSCODE_CLI=1 to enable)."
+    log_info "vscode cli skipped (set ENABLE_VSCODE_CLI=1 to enable)."
     exit 0
 fi
 
@@ -28,12 +29,12 @@ DEST="$HOME/.local/bin/code"
 # Check the specific install path — not `has_command code` — because a full
 # VS Code desktop installation also provides `code` on PATH.
 if [[ -x "$DEST" ]]; then
-    echo "vscode cli is already installed."
+    log_info "vscode cli is already installed."
     exit 0
 fi
 
 if os_is_windows; then
-    echo "Skipping VS Code CLI on Windows (use the desktop installer)."
+    log_info "Skipping VS Code CLI on Windows (use the desktop installer)."
     exit 0
 fi
 
@@ -48,8 +49,7 @@ if os_is_linux; then
         arm64) asset="cli-alpine-arm64" ;;
         armhf) asset="cli-linux-armhf" ;;
         *)
-            echo "ERROR: Unsupported Linux architecture (${OS_ARCH})." >&2
-            exit 1
+            log_fatal "Unsupported Linux architecture (${OS_ARCH})."
             ;;
     esac
 elif os_is_macos; then
@@ -57,8 +57,7 @@ elif os_is_macos; then
         amd64) asset="cli-darwin-x64" ;;
         arm64) asset="cli-darwin-arm64" ;;
         *)
-            echo "ERROR: Unsupported macOS architecture (${OS_ARCH})." >&2
-            exit 1
+            log_fatal "Unsupported macOS architecture (${OS_ARCH})."
             ;;
     esac
 fi
@@ -68,18 +67,16 @@ tmp_ar="$(mktemp)"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_ar" "$tmp_dir"' EXIT
 
-echo "[vscode] Downloading VS Code CLI (${asset})..."
+log_info "Downloading VS Code CLI (${asset})..."
 if ! curl -fsSL "$url" -o "$tmp_ar"; then
-    echo "ERROR: Failed to download VS Code CLI from $url" >&2
-    exit 1
+    log_fatal "Failed to download VS Code CLI from $url"
 fi
 
 # darwin assets are .zip; linux assets are .tar.gz.
 case "${asset}" in
     cli-darwin-*)
         if ! has_command unzip; then
-            echo "ERROR: 'unzip' is required to extract the CLI archive." >&2
-            exit 1
+            log_fatal "'unzip' is required to extract the CLI archive."
         fi
         unzip -qo "$tmp_ar" -d "$tmp_dir"
         ;;
@@ -91,8 +88,7 @@ esac
 # The archive contains a single executable named `code`.
 extracted="$(find "$tmp_dir" -maxdepth 2 -type f -name 'code' | head -n 1)"
 if [[ -z "$extracted" ]]; then
-    echo "ERROR: 'code' binary not found in downloaded archive." >&2
-    exit 1
+    log_fatal "'code' binary not found in downloaded archive."
 fi
 
 mkdir -p "$HOME/.local/bin"
@@ -100,4 +96,4 @@ mv "$extracted" "$DEST"
 chmod +x "$DEST"
 
 version="$("$DEST" --version 2>/dev/null | head -n 1)"
-echo "vscode cli installed (${version:-ok})."
+log_success "vscode cli installed (${version:-ok})."

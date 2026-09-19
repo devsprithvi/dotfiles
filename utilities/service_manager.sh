@@ -90,7 +90,7 @@ WantedBy=default.target
 EOF
 
     systemctl --user daemon-reload >/dev/null 2>&1 || true
-    echo "[service] registered systemd user unit: ${SERVICE_PREFIX}${name}.service"
+    log_success "registered systemd user unit: ${SERVICE_PREFIX}${name}.service"
 }
 
 _systemd_enable()  { _systemd_enable_linger; systemctl --user enable --now "${SERVICE_PREFIX}$1.service"; }
@@ -136,7 +136,7 @@ _launchd_register() {
         echo '</plist>'
     } >"$plist"
 
-    echo "[service] registered launchd agent: ${label}.plist"
+    log_success "registered launchd agent: ${label}.plist"
 }
 
 _launchd_enable() {
@@ -150,7 +150,7 @@ _launchd_disable() {
     rm -f "$plist"
 }
 _launchd_status() {
-    launchctl list | grep "${SERVICE_PREFIX}$1" || echo "[service] ${SERVICE_PREFIX}$1 is not loaded."
+    launchctl list | grep "${SERVICE_PREFIX}$1" || log_info "${SERVICE_PREFIX}$1 is not loaded."
 }
 _launchd_list() { ls -1 "$(_launchd_dir)" 2>/dev/null | grep "^${SERVICE_PREFIX}" || true; }
 
@@ -159,17 +159,17 @@ _schtasks_name() { printf '%s\n' "dotfiles\\$1"; }
 
 _win_register() {
     local name="$1" desc="$2"; shift 2
-    has_command schtasks || { echo "[service] schtasks unavailable; cannot register '${name}' on Windows." >&2; return 1; }
+    has_command schtasks || { log_error "schtasks unavailable; cannot register '${name}' on Windows."; return 1; }
     # Run the command through bash at logon. Paths coming from a POSIX shell may
     # need translation for cmd; this is a best-effort convenience on Windows.
     local cmd="$*"
     schtasks /Create /TN "$(_schtasks_name "$name")" \
         /TR "bash -lc \"${cmd}\"" /SC ONLOGON /RL LIMITED /F >/dev/null
-    echo "[service] registered scheduled task: $(_schtasks_name "$name") (${desc})"
+    log_success "registered scheduled task: $(_schtasks_name "$name") (${desc})"
 }
 _win_enable()  { schtasks /Run  /TN "$(_schtasks_name "$1")" >/dev/null 2>&1 || true; }
 _win_disable() { schtasks /Delete /TN "$(_schtasks_name "$1")" /F  >/dev/null 2>&1 || true; }
-_win_status()  { schtasks /Query /TN "$(_schtasks_name "$1")" 2>/dev/null || echo "[service] task not found."; }
+_win_status()  { schtasks /Query /TN "$(_schtasks_name "$1")" 2>/dev/null || log_info "task not found."; }
 _win_list()    { schtasks /Query /FO LIST 2>/dev/null | grep -i 'dotfiles\\\\' || true; }
 
 # ── Public dispatch ──────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ service_register() {
     if os_is_linux;   then _systemd_register "$name" "$desc" "$@"; return $?; fi
     if os_is_macos;   then _launchd_register "$name" "$desc" "$@"; return $?; fi
     if os_is_windows; then _win_register     "$name" "$desc" "$@"; return $?; fi
-    echo "[service] ERROR: unsupported OS family '${OS_FAMILY}'." >&2; return 1
+    log_error "unsupported OS family '${OS_FAMILY}'."; return 1
 }
 
 service_enable() {

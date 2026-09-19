@@ -3,9 +3,10 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "zsh"
 
 if has_command zsh; then
-    echo "zsh is already installed."
+    log_info "zsh is already installed."
     exit 0
 fi
 
@@ -13,12 +14,12 @@ fi
 # On macOS it is pre-installed. On Windows it is not practical.
 
 if os_is_macos; then
-    echo "zsh should be pre-installed on macOS."
+    log_info "zsh should be pre-installed on macOS."
     exit 0
 fi
 
 if os_is_windows; then
-    echo "Skipping zsh on Windows."
+    log_info "Skipping zsh on Windows."
     exit 0
 fi
 
@@ -33,14 +34,12 @@ if os_is_linux; then
     elif os_distro_like alpine; then
         installer_apk_install zsh
     else
-        echo "Unknown distro '${OS_DISTRO}'. Cannot install zsh automatically."
-        exit 1
+        log_fatal "Unknown distro '${OS_DISTRO}'. Cannot install zsh automatically."
     fi
 fi
 
 if ! has_command zsh; then
-    echo "ERROR: Failed to install zsh. Cannot continue."
-    exit 1
+    log_fatal "Failed to install zsh. Cannot continue."
 fi
 
-echo "zsh installed."
+log_success "zsh installed."

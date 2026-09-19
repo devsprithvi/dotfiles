@@ -3,9 +3,10 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "sheldon"
 
 if has_command sheldon; then
-    echo "sheldon is already installed."
+    log_info "sheldon is already installed."
     exit 0
 fi
 
@@ -16,9 +17,8 @@ elif os_is_windows; then
     if has_command scoop; then
         installer_scoop_install sheldon
     else
-        echo "Cannot install sheldon on Windows: scoop required."
-        exit 1
+        log_fatal "Cannot install sheldon on Windows: scoop required."
     fi
 fi
 
-echo "sheldon installed."
+log_success "sheldon installed."

@@ -35,6 +35,7 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
 source "${SCRIPT_DIR}/presets.sh"
+log_set_component "services"
 
 RUNNER="${SCRIPT_DIR}/run.sh"
 
@@ -43,8 +44,7 @@ _unit_name() { printf '%s\n' "${1/:/-}"; }
 
 _require_preset() {
     if ! preset_exists "$1"; then
-        echo "[services] Unknown preset: ${1:-<none>}" >&2
-        echo "" >&2
+        log_error "Unknown preset: ${1:-<none>}"
         _usage >&2
         exit 1
     fi
@@ -81,13 +81,13 @@ _cmd_run() {
 
 # ── Command: enable (register + start via OS init) ──────────────────────────
 _cmd_enable() {
-    [[ -z "${1:-}" ]] && { echo "[services] enable needs <tool:sub>." >&2; exit 1; }
+    [[ -z "${1:-}" ]] && { log_error "enable needs <tool:sub>."; exit 1; }
     local spec="$1"; shift
     _require_preset "$spec"
 
     if ! service_supported; then
-        echo "[services] Cannot autostart here: $(service_unsupported_reason)." >&2
-        echo "[services] Run it in the foreground instead: services/index.sh run ${spec} $*" >&2
+        log_error "Cannot autostart here: $(service_unsupported_reason)."
+        log_error "Run it in the foreground instead: services/index.sh run ${spec} $*"
         exit 1
     fi
 
@@ -97,17 +97,18 @@ _cmd_enable() {
 
     # The unit re-enters the generic runner so all secret/auth logic stays in one
     # place. env bash keeps the ExecStart first token absolute for systemd.
+    log_info "enabling autostart for '${spec}'..."
     service_register "$name" "$desc" /usr/bin/env bash "$RUNNER" "$spec" "$@"
     service_enable "$name"
-    echo "[services] '${spec}' enabled — it will start automatically at boot/login."
+    log_success "'${spec}' enabled — it will start automatically at boot/login."
 }
 
 # ── Command: disable ─────────────────────────────────────────────────────────
 _cmd_disable() {
-    [[ -z "${1:-}" ]] && { echo "[services] disable needs <tool:sub>." >&2; exit 1; }
+    [[ -z "${1:-}" ]] && { log_error "disable needs <tool:sub>."; exit 1; }
     local name; name="$(_unit_name "$1")"
     service_disable "$name"
-    echo "[services] '${1}' disabled and removed."
+    log_success "'${1}' disabled and removed."
 }
 
 # ── Command: status ──────────────────────────────────────────────────────────
@@ -115,7 +116,7 @@ _cmd_status() {
     if [[ -n "${1:-}" ]]; then
         service_status "$(_unit_name "$1")"
     else
-        echo "[services] Managed units:"
+        log_info "Managed units:"
         service_list
     fi
 }
@@ -130,8 +131,7 @@ case "$cmd" in
     status)          _cmd_status "$@" ;;
     list|""|-h|--help|help) _usage ;;
     *)
-        echo "[services] Unknown command: ${cmd}" >&2
-        echo "" >&2
+        log_error "Unknown command: ${cmd}"
         _usage >&2
         exit 1
         ;;

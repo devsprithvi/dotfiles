@@ -29,7 +29,8 @@ dotfiles/
 ├── .chezmoiscripts/      # Chezmoi lifecycle triggers (runs package installation once)
 ├── packages/             # INSTALL only — index.sh installs every tool, one script each
 ├── services/             # RUN — one generic runner + a preset map; run by hand OR autostart via the OS init
-├── utilities/            # Shared libraries (OS detection, privilege handling, secrets, service manager)
+├── utilities/            # Shared libraries (OS detection, logging, privilege handling, secrets, service manager)
+│   ├── logger.sh         # Dedicated logging facility (timestamped, leveled, console + file)
 │   └── installers/       # Generic package manager abstractions (apt, brew, dnf, etc.)
 ├── components/           # Standalone projects under development, parked here (NOT deployed)
 └── dot_*                 # Managed user configurations mapped directly to $HOME
@@ -42,7 +43,8 @@ The layering enforces one hard boundary: **install** and **run** are separate.
 * **`packages/`**: Installation only. Each script installs exactly one tool (download the binary, or defer to a package manager) and exits. It performs **no** authentication, tunnel/service registration, or `tailscale up` — those are runtime concerns. This is what `chezmoi` runs once during bootstrap.
 * **`services/`**: Runtime actions only. There is **one generic runner** (`run.sh`) plus a **declarative preset map** (`presets.sh`) keyed by `tool:sub` — not one script per tool. The runner hydrates secrets from the secret manager into environment variables, performs the preset's auth step, then execs the tool in the foreground. It never installs; if a tool is missing the preset points you at the matching package. `run.sh` also runs a **raw command** directly (`--secret VAR@PATH -- CMD...`). Services run two ways: **by hand** (`run`) or **supervised by the OS** so they autostart at boot/login (`enable` — see [Autostart](#autostart--how-services-actually-run)).
 * **`utilities/installers/`**: Low-level package manager wrappers. Uniform, idempotent helpers around system package managers (`apt`, `brew`, `dnf`, `pacman`, etc.) so packages don't duplicate distro-specific install logic.
-* **`utilities/`**: Core shared libraries for OS/architecture discovery (`os.sh`), privilege escalation and credential lookups (`helpers.sh`), and the init-system abstraction that registers autostart units (`service_manager.sh`). Sourced by both packages and services.
+* **`utilities/`**: Core shared libraries for OS/architecture discovery (`os.sh`), the dedicated logger (`logger.sh`), privilege escalation and credential lookups (`helpers.sh`), and the init-system abstraction that registers autostart units (`service_manager.sh`). Sourced by both packages and services.
+* **`utilities/logger.sh`**: A single, dependency-free logging facility used across the whole lifecycle (bootstrap → install → services). Every line is timestamped and leveled; output goes to both the console and a persistent per-run log file so failures are diagnosable after the fact. See [Logging & Diagnostics](#-logging--diagnostics).
 * **`components/`**: Standalone side-projects being developed alongside these dotfiles and parked here for now. They are **not** part of the bootstrap flow and are excluded from `chezmoi apply` (see [Components](#-components-under-development)).
 
 ---
@@ -221,11 +223,91 @@ The only values the runner pulls from Infisical, and where. If the env var is al
 
 ---
 
+## 🪵 Logging & Diagnostics
+
+Every phase — bootstrap, package install, service registration, and runtime — logs
+through **one dedicated logger** (`utilities/logger.sh`). It is pure bash +
+coreutils (no third-party dependency), so it works the moment a shell exists. The
+goal is simple: after any run you can answer **what installed, what failed, and
+when** by reading a single file.
+
+### Where the logs live
+
+```
+${XDG_STATE_HOME:-~/.local/state}/dotfiles/logs/
+├── run-YYYYMMDD-HHMMSS-<pid>.log   # one file per run
+└── latest.log                      # symlink → the newest run
+```
+
+Pull the most recent run's log from anywhere:
+
+```bash
+cat ~/.local/state/dotfiles/logs/latest.log        # full record of the last run
+grep -E '\b(ERROR|WARN)\b' ~/.local/state/dotfiles/logs/latest.log   # just the problems
+```
+
+### What you get
+
+* **Timestamped, structured lines.** Each file entry carries an ISO-8601 UTC
+  timestamp, a severity level, and the component that emitted it:
+  ```
+  2026-01-01T12:34:56Z  INFO    [git]     git is already installed.
+  2026-01-01T12:34:57Z  ERROR   [zsh]     Failed to install zsh. Cannot continue.
+  ```
+* **Dual output.** A clean, colored, concise view on the console (stderr, colored
+  only on a TTY) and a complete, plain, greppable record in the file.
+* **One file per run, shared across processes.** Each package installs in its own
+  `bash` process, but they all inherit `DOTFILES_LOG_FILE` and append to the *same*
+  file — so a full `bootstrap` + `chezmoi apply` is a single coherent log. Services
+  that start at boot (no inherited env) mint their own run file, which is what you
+  want for diagnosing runtime failures separately.
+* **Full command capture.** Install commands run through `log_run`, which streams a
+  tool's output live to the console *and* records every line into the log with
+  timestamps, plus the command's real exit code.
+* **Self-managing.** Writes a session header (run id, host, user, OS, arch) once
+  per file, and prunes to the newest `DOTFILES_LOG_KEEP` runs (default 20).
+
+### Tuning (environment variables)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DOTFILES_LOG_DIR` | `${XDG_STATE_HOME:-~/.local/state}/dotfiles/logs` | Where log files are written |
+| `DOTFILES_LOG_LEVEL` | `INFO` | Console verbosity: `TRACE`\|`DEBUG`\|`INFO`\|`WARN`\|`ERROR` |
+| `DOTFILES_LOG_FILE_LEVEL` | `DEBUG` | File verbosity (kept more detailed than the console) |
+| `DOTFILES_LOG_KEEP` | `20` | Number of run files to retain |
+| `DOTFILES_LOG_NO_COLOR` / `NO_COLOR` | — | Set to disable ANSI color on the console |
+
+```bash
+# quieter console, but keep everything (incl. TRACE) in the file:
+DOTFILES_LOG_LEVEL=WARN DOTFILES_LOG_FILE_LEVEL=TRACE ./bootstrap.sh
+```
+
+### Using it in a script
+
+Any script that sources `utilities/index.sh` gets the logger automatically:
+
+```bash
+source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "mytool"      # label lines from this script
+
+log_info    "starting"
+log_success "done"
+log_warn    "optional step skipped"
+log_error   "something failed"   # logs, does NOT exit
+log_fatal   "unrecoverable"      # logs an error and exits 1
+log_run curl -fsSL https://example.com/install.sh   # capture full output + exit code
+```
+
+---
+
 ## 🔄 Execution Flow
 
 ```
+# Every phase below logs to one shared run file:
+#   ${XDG_STATE_HOME:-~/.local/state}/dotfiles/logs/latest.log
+
 # Install (bootstrap, re-applied when packages/ changes):
-bootstrap.sh
+bootstrap.sh                                   # opens the run log; exports DOTFILES_LOG_FILE
   └─→ chezmoi init --apply
         ├─→ Deploy dotfiles into $HOME (~/.bashrc, ~/.config, etc.)
         └─→ .chezmoiscripts/run_onchange_install-packages.sh.tmpl   (re-runs when any packages/*.sh changes)

@@ -34,6 +34,7 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
 source "${SCRIPT_DIR}/presets.sh"
+log_set_component "run"
 
 # Fetch one "VAR@PATH" / "VAR@ENV@PATH" secret into the env if not already set.
 hydrate_secret() {
@@ -70,11 +71,12 @@ if [[ "${1:-}" == "--secret" || "${1:-}" == "--exec" || "${1:-}" == "--" ]]; the
             --secret) secrets+=("$2"); shift 2 ;;
             --exec)   shift ;;
             --)       shift; break ;;
-            *)        echo "[run] Unexpected argument in raw mode: $1" >&2; exit 1 ;;
+            *)        log_fatal "Unexpected argument in raw mode: $1" ;;
         esac
     done
-    [[ "$#" -eq 0 ]] && { echo "[run] No command given after --." >&2; exit 1; }
+    [[ "$#" -eq 0 ]] && { log_fatal "No command given after --."; }
     for s in "${secrets[@]}"; do hydrate_secret "$s"; done
+    log_info "raw exec: $*"
     exec "$@"
 fi
 
@@ -86,8 +88,7 @@ esac
 shift || true
 
 if ! preset_exists "$spec"; then
-    echo "[run] Unknown preset: ${spec}" >&2
-    echo "" >&2
+    log_error "Unknown preset: ${spec}"
     _usage >&2
     exit 1
 fi
@@ -101,9 +102,9 @@ while IFS= read -r s; do
     var="${s%%@*}"
     if [[ -z "${!var:-}" ]]; then
         if [[ -z "${INFISICAL_CLIENT_ID:-}" || -z "${INFISICAL_CLIENT_SECRET:-}" ]]; then
-            echo "[run] NOTE: secret '${var}' is unset and Infisical is not configured (no INFISICAL_CLIENT_ID/SECRET) — cannot fetch it." >&2
+            log_warn "secret '${var}' is unset and Infisical is not configured (no INFISICAL_CLIENT_ID/SECRET) — cannot fetch it."
         else
-            echo "[run] NOTE: secret '${var}' is unset and was not found in Infisical (path '${s#*@}')." >&2
+            log_warn "secret '${var}' is unset and was not found in Infisical (path '${s#*@}')."
         fi
     fi
 done < <(preset_secret_specs "$spec" || true)
@@ -112,9 +113,9 @@ done < <(preset_secret_specs "$spec" || true)
 load_preset "$spec" "$@"
 
 # 3. Prepare / authenticate (may exit 0 for a no-op, or fail to abort).
-preset_authenticate || { echo "[run] Aborting '${spec}'." >&2; exit 1; }
+preset_authenticate || { log_fatal "Aborting '${spec}'."; }
 
 # 4. Hand off to the tool in the foreground.
-[[ "${#PRESET_CMD[@]}" -gt 0 ]] || { echo "[run] Preset '${spec}' produced no command." >&2; exit 1; }
-echo "[run] ${PRESET_DESC:-$spec} (Ctrl-C to stop)..."
+[[ "${#PRESET_CMD[@]}" -gt 0 ]] || { log_fatal "Preset '${spec}' produced no command."; }
+log_info "${PRESET_DESC:-$spec} starting (Ctrl-C to stop): ${PRESET_CMD[*]}"
 exec "${PRESET_CMD[@]}"

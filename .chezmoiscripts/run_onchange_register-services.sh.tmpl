@@ -37,12 +37,16 @@ DOTFILES_SERVICES="{{ env "DOTFILES_SERVICES" }}"
 # Nothing declared → nothing to do.
 [[ -z "${DOTFILES_SERVICES// /}" ]] && exit 0
 
-echo ""
-echo "[services] Registering declared autostart services: ${DOTFILES_SERVICES}"
+# Load the shared logger so this phase lands in the same run log as install.
+source "${SOURCE_DIR}/utilities/index.sh"
+log_set_component "services-register"
+
+log_section "Registering declared autostart services"
+log_info "Declared: ${DOTFILES_SERVICES}"
 
 for spec in ${DOTFILES_SERVICES}; do
-    echo "[services] enable ${spec}"
+    log_info "enable ${spec}"
     # Best-effort: a failure (e.g. no systemd in a container) must not abort apply.
     bash "${SOURCE_DIR}/services/index.sh" enable "${spec}" || \
-        echo "[services] WARNING: could not enable '${spec}' (see message above)." >&2
+        log_warn "could not enable '${spec}' (see message above)."
 done

@@ -8,7 +8,7 @@ fetch_url() {
     elif has_command wget; then
         wget -qO- "$url"
     else
-        echo "ERROR: Neither curl nor wget is available." >&2
+        log_error "Neither curl nor wget is available."
         return 127
     fi
 }
@@ -24,8 +24,17 @@ install_from_url() {
         shift 2
     fi
 
-    echo "[installer] Installing ${tool_name} from URL..."
-    fetch_url "${url}" | "${shell_bin}" -s -- "$@"
+    log_info "Installing ${tool_name} from ${url}..."
+    # A remote-installer pipe (fetch | shell) can't be handed to log_run as a
+    # single command, so run the pipe directly and bracket it with explicit
+    # result logging. The installer's own stdout still reaches the console.
+    if fetch_url "${url}" | "${shell_bin}" -s -- "$@"; then
+        log_success "${tool_name} installer completed."
+    else
+        local rc="${PIPESTATUS[0]}"
+        log_error "${tool_name} installer failed (fetch/exec exit ${rc})."
+        return 1
+    fi
 }
 
 # Download and execute a PowerShell script on Windows
@@ -33,11 +42,16 @@ install_from_url_windows() {
     local tool_name="$1" url="$2"
 
     if ! has_command powershell.exe; then
-        echo "ERROR: PowerShell is required but not found." >&2
+        log_error "PowerShell is required but not found."
         return 1
     fi
 
-    echo "[installer] Installing ${tool_name} on Windows..."
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression (Invoke-RestMethod '${url}')"
+    log_info "Installing ${tool_name} on Windows..."
+    if log_run powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression (Invoke-RestMethod '${url}')"; then
+        log_success "${tool_name} installer completed."
+    else
+        log_error "${tool_name} installer failed."
+        return 1
+    fi
 }
 

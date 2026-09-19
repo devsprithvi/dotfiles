@@ -15,47 +15,44 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "tailscale"
 
 # ── Gate: opt-in only ──────────────────────────────────────────────────────
 if [[ -z "${ENABLE_TAILSCALE:-}" ]]; then
-    echo "tailscale skipped (set ENABLE_TAILSCALE=1 to enable)."
+    log_info "tailscale skipped (set ENABLE_TAILSCALE=1 to enable)."
     exit 0
 fi
 
 if has_command tailscale; then
-    echo "tailscale is already installed."
+    log_info "tailscale is already installed."
     exit 0
 fi
 
 if os_is_linux; then
     # The official installer detects the distro and configures the repo + daemon.
     if ! can_run_privileged; then
-        echo "ERROR: root/sudo required to install tailscale." >&2
-        exit 1
+        log_fatal "root/sudo required to install tailscale."
     fi
-    echo "[tailscale] Installing via official installer..."
+    log_info "Installing via official installer..."
     if has_command curl; then
         curl -fsSL https://tailscale.com/install.sh | run_privileged sh
     elif has_command wget; then
         wget -qO- https://tailscale.com/install.sh | run_privileged sh
     else
-        echo "ERROR: curl or wget required to install tailscale." >&2
-        exit 1
+        log_fatal "curl or wget required to install tailscale."
     fi
 elif os_is_macos; then
     if has_command brew; then
         installer_brew_install tailscale
     else
-        echo "ERROR: Homebrew required to install tailscale on macOS (or use the App Store app)." >&2
-        exit 1
+        log_fatal "Homebrew required to install tailscale on macOS (or use the App Store app)."
     fi
 elif os_is_windows; then
     if has_command winget; then
         installer_winget_install "tailscale.tailscale"
     else
-        echo "Cannot install tailscale on Windows: winget required."
-        exit 1
+        log_fatal "Cannot install tailscale on Windows: winget required."
     fi
 fi
 
-echo "tailscale installed."
+log_success "tailscale installed."

@@ -3,9 +3,10 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "gh"
 
 if has_command gh; then
-    echo "gh is already installed."
+    log_info "gh is already installed."
     exit 0
 fi
 
@@ -21,8 +22,7 @@ elif os_is_linux; then
     elif has_command apk; then
         installer_apk_install gh
     else
-        echo "ERROR: No supported package manager found to install gh on Linux." >&2
-        exit 1
+        log_fatal "No supported package manager found to install gh on Linux."
     fi
 elif os_is_windows; then
     if has_command scoop; then
@@ -30,9 +30,8 @@ elif os_is_windows; then
     elif has_command winget; then
         installer_winget_install GitHub.cli
     else
-        echo "Cannot install gh on Windows: scoop or winget required."
-        exit 1
+        log_fatal "Cannot install gh on Windows: scoop or winget required."
     fi
 fi
 
-echo "gh installed."
+log_success "gh installed."

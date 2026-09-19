@@ -10,7 +10,9 @@
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Step 1: Load Core System & Helper Libraries ─────────────────────────────
+# os.sh first so the logger's session header can report OS/arch details.
 source "${LIB_DIR}/os.sh"
+source "${LIB_DIR}/logger.sh"
 source "${LIB_DIR}/helpers.sh"
 source "${LIB_DIR}/service_manager.sh"
 

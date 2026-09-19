@@ -3,20 +3,21 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
+log_set_component "curl"
 
 if has_command curl; then
-    echo "curl is already installed."
+    log_info "curl is already installed."
     exit 0
 fi
 
 if os_is_macos; then
     # curl is pre-installed on macOS
-    echo "curl should be pre-installed on macOS."
+    log_info "curl should be pre-installed on macOS."
     exit 0
 fi
 
 if os_is_windows; then
-    echo "curl should be pre-installed on Windows."
+    log_info "curl should be pre-installed on Windows."
     exit 0
 fi
 
@@ -31,14 +32,12 @@ if os_is_linux; then
     elif os_distro_like alpine; then
         installer_apk_install curl
     else
-        echo "Unknown distro '${OS_DISTRO}'. Cannot install curl automatically."
-        exit 1
+        log_fatal "Unknown distro '${OS_DISTRO}'. Cannot install curl automatically."
     fi
 fi
 
 if ! has_command curl; then
-    echo "ERROR: Failed to install curl. Cannot continue."
-    exit 1
+    log_fatal "Failed to install curl. Cannot continue."
 fi
 
-echo "curl installed."
+log_success "curl installed."

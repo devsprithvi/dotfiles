@@ -36,27 +36,16 @@ source "${SCRIPT_DIR}/../utilities/index.sh"
 source "${SCRIPT_DIR}/presets.sh"
 log_set_component "run"
 
-# Fetch one "VAR@PATH" / "VAR@ENV@PATH" secret into the env if not already set.
-hydrate_secret() {
-    local spec="$1" var env path a b c
-    IFS='@' read -r a b c <<<"$spec"
-    if [[ -n "$c" ]]; then var="$a"; env="$b"; path="$c"; else var="$a"; env="global"; path="$b"; fi
-    [[ -z "$var" ]] && return 0
-
-    # Respect a value the caller already exported (e.g. secret-manager-populated).
-    [[ -n "${!var:-}" ]] && return 0
-
-    local val
-    val="$(fetch_infisical_secret "$var" "$env" "$path" 2>/dev/null || true)"
-    [[ -n "$val" ]] && export "${var}=${val}"
-    return 0
-}
+# Secret hydration (parsing, mapping, provider dispatch) lives in the secrets/
+# subsystem. Here we just call secret_hydrate on each declared spec.
+# Spec grammar: VAR[=LOCATOR], where LOCATOR is provider-specific (see
+# secrets/core.sh and secrets/providers/<id>.sh for details).
 
 _usage() {
     cat <<'EOF'
 Usage:
   services/run.sh <tool:sub> [args...]                 run a preset
-  services/run.sh --secret VAR@PATH [...] -- CMD...     run a raw command
+  services/run.sh --secret VAR[=LOCATOR] [...] -- CMD...   raw command
 
 Presets:
 EOF
@@ -75,7 +64,7 @@ if [[ "${1:-}" == "--secret" || "${1:-}" == "--exec" || "${1:-}" == "--" ]]; the
         esac
     done
     [[ "$#" -eq 0 ]] && { log_fatal "No command given after --."; }
-    for s in "${secrets[@]}"; do hydrate_secret "$s"; done
+    for s in "${secrets[@]}"; do secret_hydrate "$s"; done
     log_info "raw exec: $*"
     exec "$@"
 fi
@@ -95,16 +84,18 @@ fi
 
 # 1. Hydrate declared secrets (static list — safe before load). Report clearly
 #    when a declared secret could not be resolved, and why, so failures are
-#    diagnosable instead of surfacing later as a confusing tool error.
+#    diagnosable instead of surfacing later as a confusing tool error. Mapping
+#    (DOTFILES_SECRET_MAP) is applied inside secret_hydrate/secret_resolve_spec.
 while IFS= read -r s; do
     [[ -z "$s" ]] && continue
-    hydrate_secret "$s"
-    var="${s%%@*}"
-    if [[ -z "${!var:-}" ]]; then
-        if [[ -z "${INFISICAL_CLIENT_ID:-}" || -z "${INFISICAL_CLIENT_SECRET:-}" ]]; then
-            log_warn "secret '${var}' is unset and Infisical is not configured (no INFISICAL_CLIENT_ID/SECRET) — cannot fetch it."
+    secret_hydrate "$s"
+    # Resolve the effective source (after any map override) for accurate reporting.
+    secret_resolve_spec "$s" || continue
+    if [[ -z "${!SECRET_VAR:-}" ]]; then
+        if ! secret_provider_available; then
+            log_warn "secret '${SECRET_VAR}' is unset and provider '${SECRET_PROVIDER}' is not configured — cannot fetch it."
         else
-            log_warn "secret '${var}' is unset and was not found in Infisical (path '${s#*@}')."
+            log_warn "secret '${SECRET_VAR}' is unset and was not found ($(secret_describe "$SECRET_VAR" "$SECRET_LOCATOR"))."
         fi
     fi
 done < <(preset_secret_specs "$spec" || true)

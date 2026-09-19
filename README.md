@@ -28,10 +28,10 @@ dotfiles/
 ├── bootstrap.sh          # One-liner system entrypoint (installs chezmoi & initializes)
 ├── .chezmoiscripts/      # Chezmoi lifecycle triggers (runs package installation once)
 ├── packages/             # INSTALL only — index.sh installs every tool, one script each
+│   └── installers/       # Generic package manager abstractions (apt, brew, dnf, etc.)
 ├── services/             # RUN — one generic runner + a preset map; run by hand OR autostart via the OS init
 ├── utilities/            # Shared libraries (OS detection, logging, privilege handling, secrets, service manager)
-│   ├── logger.sh         # Dedicated logging facility (timestamped, leveled, console + file)
-│   └── installers/       # Generic package manager abstractions (apt, brew, dnf, etc.)
+│   └── logger.sh         # Dedicated logging facility (timestamped, leveled, console + file)
 ├── components/           # Standalone projects under development, parked here (NOT deployed)
 └── dot_*                 # Managed user configurations mapped directly to $HOME
 ```
@@ -42,7 +42,7 @@ The layering enforces one hard boundary: **install** and **run** are separate.
 
 * **`packages/`**: Installation only. Each script installs exactly one tool (download the binary, or defer to a package manager) and exits. It performs **no** authentication, tunnel/service registration, or `tailscale up` — those are runtime concerns. This is what `chezmoi` runs once during bootstrap.
 * **`services/`**: Runtime actions only. There is **one generic runner** (`run.sh`) plus a **declarative preset map** (`presets.sh`) keyed by `tool:sub` — not one script per tool. The runner hydrates secrets from the secret manager into environment variables, performs the preset's auth step, then execs the tool in the foreground. It never installs; if a tool is missing the preset points you at the matching package. `run.sh` also runs a **raw command** directly (`--secret VAR@PATH -- CMD...`). Services run two ways: **by hand** (`run`) or **supervised by the OS** so they autostart at boot/login (`enable` — see [Autostart](#autostart--how-services-actually-run)).
-* **`utilities/installers/`**: Low-level package manager wrappers. Uniform, idempotent helpers around system package managers (`apt`, `brew`, `dnf`, `pacman`, etc.) so packages don't duplicate distro-specific install logic.
+* **`packages/installers/`**: Low-level package manager wrappers. Uniform, idempotent helpers around system package managers (`apt`, `brew`, `dnf`, `pacman`, etc.) so packages don't duplicate distro-specific install logic. They live inside `packages/` because the package scripts are their only consumers.
 * **`utilities/`**: Core shared libraries for OS/architecture discovery (`os.sh`), the dedicated logger (`logger.sh`), privilege escalation and credential lookups (`helpers.sh`), and the init-system abstraction that registers autostart units (`service_manager.sh`). Sourced by both packages and services.
 * **`utilities/logger.sh`**: A single, dependency-free logging facility used across the whole lifecycle (bootstrap → install → services). Every line is timestamped and leveled; output goes to both the console and a persistent per-run log file so failures are diagnosable after the fact. See [Logging & Diagnostics](#-logging--diagnostics).
 * **`components/`**: Standalone side-projects being developed alongside these dotfiles and parked here for now. They are **not** part of the bootstrap flow and are excluded from `chezmoi apply` (see [Components](#-components-under-development)).
@@ -62,7 +62,7 @@ The layering enforces one hard boundary: **install** and **run** are separate.
 | **`components/pulipil-vscode`** | The VS Code editor support for `pulipil.cue` files — a thin language-server client for `pulipil`, giving real-time, provider-aware package-name completion. Written in TypeScript. | In development |
 
 The long-term intent is that `pulipil` becomes a cleaner, declarative
-replacement for the ad-hoc `utilities/installers/` shell wrappers, orchestrated
+replacement for the ad-hoc `packages/installers/` shell wrappers, orchestrated
 by chezmoi: its `run_once_` / `run_onchange_` scripts would decide *when* to
 invoke pulipil, while pulipil decides *what* to install and run. That migration
 has **not** started; chezmoi and the shell installers remain the source of
@@ -117,7 +117,7 @@ services/index.sh list                       # print presets and managed units
 services/index.sh run vscode:tunnel my-box   # e.g. a named tunnel
 
 # run ANY command through the same runner (raw mode) — no preset needed:
-services/run.sh --secret GITHUB_VSCODE_PAT@/github -- my-tool --flag
+services/run.sh --secret GITHUB_PAT=ADMIN_PAT@/github -- my-tool --flag
 ```
 
 Adding a tool is a new `case` in `presets.sh` (a command + its secret paths + an optional login step) — no new script file, no dispatcher wiring. Keep this table and the [secret table](#what-the-secret-manager-fetches) in sync when you do.
@@ -171,10 +171,13 @@ services/index.sh status                         # list all managed units
 **Configuration Variables (read by the services at run time):**
 * `VSCODE_TUNNEL_NAME`: Tunnel name (defaults to `$(hostname)`).
 * `VSCODE_WEB_HOST` / `VSCODE_WEB_PORT` / `VSCODE_WEB_TOKEN`: web server bind host (`0.0.0.0`), port (`8000`), and optional connection token.
-* `GITHUB_VSCODE_PAT`: GitHub PAT for non-interactive VS Code tunnel / dev tunnel login (otherwise fetched from Infisical at `/github`).
-* `DEVTUNNEL_TOKEN`: Dev Tunnels access token (otherwise fetched from Infisical at `/tunnels`).
-* `TAILSCALE_AUTHKEY`: Auth key for non-interactive connect (otherwise fetched from Infisical at `/tailscale`).
+* `GITHUB_PAT`: GitHub personal access token for non-interactive VS Code tunnel / dev tunnel login (default source: key `ADMIN_PAT` at `/github`).
+* `DEVTUNNEL_TOKEN`: Dev Tunnels access token (otherwise fetched at `/tunnels`).
+* `TAILSCALE_AUTHKEY`: Auth key for non-interactive connect (otherwise fetched at `/tailscale`).
 * `DOTFILES_SERVICES`: space-separated `tool:sub` list to autostart at bootstrap/apply.
+* `DOTFILES_SECRET_MAP`: per-var source overrides, e.g. `GITHUB_PAT=ADMIN_PAT@/github` — change *where* a secret comes from without editing any preset.
+* `SECRET_PROVIDER`: secret backend id (default `infisical`; `env` = use only pre-set vars).
+* `INFISICAL_ENV`: default environment slug for `infisical` lookups (default `global`).
 
 > `vscode web` runs without a connection token unless one is supplied — bind it to
 > localhost or place it behind a tunnel/VPN/reverse proxy on shared networks.
@@ -190,19 +193,51 @@ services/index.sh status                         # list all managed units
 
 ---
 
-## ⚙️ Secrets Management (Infisical)
+## ⚙️ Secrets Management
+
+Secret resolution is its own subsystem under **`secrets/`**, built to be **provider-agnostic** — Infisical today, something else tomorrow — with a mandatory **mapping** layer so the unpredictable part (where a secret lives) is never welded to the stable part (the env var a tool reads).
+
+```
+secrets/
+  index.sh              # entry point: loads the core, auto-discovers providers
+  core.sh               # generic engine — knows only VAR, an opaque LOCATOR, and a provider
+  providers/
+    infisical.sh        # Infisical dialect: login + CLI/REST fetch + locator syntax
+    env.sh              # null backend: use only pre-set env vars
+```
 
 Secrets are never committed or stored persistently in plaintext on disk:
-1. **Dynamic REST API Resolution**: Chezmoi templates and scripts authenticate on-the-fly via Infisical Universal Auth (`INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET`) directly using `curl` and `python3`.
-2. **Centralized Helper**: `fetch_infisical_secret` in `utilities/helpers.sh` provides a single function for scripts to retrieve vault secrets without hardcoding paths or relying on local credentials.
-3. **Graceful Degradation**: When credentials are not provided, secrets evaluate to empty strings and opt-in services fall back cleanly without breaking the bootstrap run.
+1. **Provider abstraction**: `SECRET_PROVIDER` selects a backend (default `infisical`). The core never logs in or parses a location — it hands `(VAR, LOCATOR)` to `_secret_provider_<id>_get`. Adding Vault/AWS/pass/etc. is a single new file in `secrets/providers/`; nothing else changes. The `infisical` backend prefers the CLI and falls back to the REST API (`curl` + `python3`, Universal Auth).
+2. **Three separated concerns**: the **env var** a tool reads (stable contract, owned by the preset), the **locator** telling the provider where the value lives (syntax owned entirely by the provider), and **which backend** to ask. Changing one never forces a change to the others.
+3. **Graceful degradation**: with no credentials (or `SECRET_PROVIDER=env`), lookups return empty and opt-in services fall back cleanly without breaking bootstrap.
+
+### The spec grammar and mapping
+
+The core grammar is deliberately tiny and provider-neutral: `VAR[=LOCATOR]`.
+
+| Piece | Meaning |
+|---|---|
+| `VAR` | env var to export (the tool contract) |
+| `=LOCATOR` | opaque string passed verbatim to the provider; omit to use the provider's default for `VAR` |
+
+The **locator** syntax belongs to the provider. For `infisical` it is `[KEY][@[ENV:]PATH]` (key defaults to `VAR`, env to `INFISICAL_ENV`→`global`, path to `/`). A different backend would define its own — the core neither knows nor cares.
+
+Presets ship **default** specs. To repoint a var without editing a preset, add an override to **`DOTFILES_SECRET_MAP`** (keyed by var):
+
+```bash
+# The GitHub PAT is stored under the key ADMIN_PAT at /github, but tools read
+# GITHUB_PAT. The map bridges the two — no preset edits:
+DOTFILES_SECRET_MAP="GITHUB_PAT=ADMIN_PAT@/github"
+```
+
+Provide it headlessly (like the machine identity) via `~/.config/environment.d/*.conf` so the systemd user manager exports it at boot.
 
 ### How a service gets its secrets
 
-The model is **plain environment variables, hydrated on demand**. An env var is an env var — there is nothing "service-specific" about it. A tool always just reads its secret from the environment; where that value comes from differs by context:
+The model is **plain environment variables, hydrated on demand**. A tool always just reads its secret from the environment; where that value comes from differs by context:
 
-* **You already exported it** (e.g. a secret manager populated your env): `run.sh` sees the variable is set and uses it as-is. Nothing is fetched. The same `GITHUB_VSCODE_PAT` serves `gh`, VS Code, and dev tunnels — one env var, many consumers.
-* **It's unset**: `run.sh` pulls it from Infisical at start (via the machine identity) and exports it into *this process only*. The value is never written to disk and disappears when the process exits. Each preset declares its secrets statically as `VAR@PATH` (see the [table below](#what-the-secret-manager-fetches)); raw mode takes the same specs via `--secret`.
+* **You already exported it** (e.g. a secret manager populated your env): `run.sh` sees the variable is set and uses it as-is. Nothing is fetched. The same `GITHUB_PAT` serves `gh`, VS Code, and dev tunnels — one env var, many consumers.
+* **It's unset**: `secret_hydrate` resolves the spec (applying any `DOTFILES_SECRET_MAP` override), fetches from the active backend, and exports it into *this process only*. The value is never written to disk and disappears when the process exits. Raw mode takes the same specs via `--secret VAR[=LOCATOR]`.
 
 **At boot (autostart)** there is no shell to pre-export anything, so the service hydrates its own secrets at start using the Infisical machine identity. That identity is **not** a services concept — it's a standard environment credential. Provide it headlessly the standard way, via `~/.config/environment.d/*.conf`, which the systemd user manager reads automatically:
 
@@ -216,14 +251,14 @@ Everything else is fetched fresh at start. In practice most tools also cache the
 
 #### What the secret manager fetches
 
-The only values the runner pulls from Infisical, and where. If the env var is already set, it wins and nothing is fetched.
+The values the runner pulls, and their **default** source (key + path). If the env var is already set, it wins and nothing is fetched; any entry can be repointed via `DOTFILES_SECRET_MAP`.
 
-| Env var | Infisical path | Used by |
-|---|---|---|
-| `GITHUB_VSCODE_PAT` | `/github` | `vscode:tunnel`, `devtunnel:host` (fallback) |
-| `DEVTUNNEL_TOKEN` | `/tunnels` | `devtunnel:host` |
-| `TAILSCALE_AUTHKEY` | `/tailscale` | `tailscale:up` |
-| `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` | (the machine identity itself) | authenticates every fetch above |
+| Env var | Default key | Path | Used by |
+|---|---|---|---|
+| `GITHUB_PAT` | `ADMIN_PAT` | `/github` | `vscode:tunnel`, `devtunnel:host` (fallback) |
+| `DEVTUNNEL_TOKEN` | `DEVTUNNEL_TOKEN` | `/tunnels` | `devtunnel:host` |
+| `TAILSCALE_AUTHKEY` | `TAILSCALE_AUTHKEY` | `/tailscale` | `tailscale:up` |
+| `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` | (the machine identity itself) | — | authenticates every fetch above |
 
 > Recommended: **don't** dump every secret into a persisted file. Persist only the
 > machine identity (or nothing) and let each service pull exactly what it needs at

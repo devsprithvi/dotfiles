@@ -51,12 +51,16 @@ _preset_known() {
 }
 
 # ── Static secret declarations (safe to call before hydration) ──────────────
+# Each service lists only the ENV VAR NAMES it needs — no keys, no paths, no
+# provider dialect. Services are provider-unaware. WHERE each var comes from
+# lives in the active provider's secret map (e.g. secrets/providers/infisical.sh),
+# and can still be repointed at runtime via DOTFILES_SECRET_MAP.
 preset_secret_specs() {
     case "$1" in
-        vscode:tunnel)  printf '%s\n' "GITHUB_VSCODE_PAT@/github" ;;
+        vscode:tunnel)  printf '%s\n' "GITHUB_PAT" ;;
         vscode:web)     : ;;  # token is optional; no mandatory secret
-        devtunnel:host) printf '%s\n' "DEVTUNNEL_TOKEN@/tunnels" "GITHUB_VSCODE_PAT@/github" ;;
-        tailscale:up)   printf '%s\n' "TAILSCALE_AUTHKEY@/tailscale" ;;
+        devtunnel:host) printf '%s\n' "DEVTUNNEL_TOKEN" "GITHUB_PAT" ;;
+        tailscale:up)   printf '%s\n' "TAILSCALE_AUTHKEY" ;;
         *)              return 1 ;;
     esac
 }
@@ -86,27 +90,27 @@ load_preset() {
                 # Already logged in (cached keychain from a prior run)? Nothing to do.
                 "$code" tunnel user show >/dev/null 2>&1 && return 0
 
-                if [[ -n "${GITHUB_VSCODE_PAT:-}" ]]; then
+                if [[ -n "${GITHUB_PAT:-}" ]]; then
                     log_info "Authenticating VS Code tunnel with GitHub token..."
                     local out
-                    if out="$("$code" tunnel user login --provider github --access-token "$GITHUB_VSCODE_PAT" 2>&1)"; then
+                    if out="$("$code" tunnel user login --provider github --access-token "$GITHUB_PAT" 2>&1)"; then
                         return 0
                     fi
                     # Surface the real reason (expired/invalid PAT, missing scope, etc.).
                     log_error "GitHub token login failed. VS Code CLI said:"
                     while IFS= read -r _l; do log_error "  ${_l}"; done <<<"${out}"
-                    log_error "Check that GITHUB_VSCODE_PAT is valid and has the required scope."
+                    log_error "Check that GITHUB_PAT is valid and has the required scope."
                     return 1
                 fi
 
                 # No PAT. Device login is interactive — only viable with a terminal.
                 # Headless (systemd/boot) would hang forever, so fail loudly instead.
                 if [[ -t 0 && -t 1 ]]; then
-                    log_warn "No GITHUB_VSCODE_PAT available; falling back to interactive device login."
+                    log_warn "No GITHUB_PAT available; falling back to interactive device login."
                     return 0
                 fi
-                log_error "no GITHUB_VSCODE_PAT and no terminal for device login (headless)."
-                log_error "Set GITHUB_VSCODE_PAT (env) or store it in Infisical at /github, then retry."
+                log_error "no GITHUB_PAT and no terminal for device login (headless)."
+                log_error "Set GITHUB_PAT (env) or map it via DOTFILES_SECRET_MAP, then retry."
                 return 1
             }
             PRESET_CMD=( "$code" tunnel --accept-server-license-terms --name "$name" )
@@ -144,9 +148,9 @@ load_preset() {
                 # Already authenticated from a prior run? Reuse it.
                 "$devtunnel" user show >/dev/null 2>&1 && return 0
 
-                local token="${DEVTUNNEL_TOKEN:-${GITHUB_VSCODE_PAT:-}}"
+                local token="${DEVTUNNEL_TOKEN:-${GITHUB_PAT:-}}"
                 if [[ -z "$token" ]]; then
-                    log_error "no DEVTUNNEL_TOKEN or GITHUB_VSCODE_PAT available to authenticate devtunnel."
+                    log_error "no DEVTUNNEL_TOKEN or GITHUB_PAT available to authenticate devtunnel."
                     log_error "Set one (env) or store it in Infisical at /tunnels or /github, then retry."
                     return 1
                 fi

@@ -76,9 +76,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Optional headless secrets (e.g. INFISICAL_CLIENT_ID/SECRET). Absent is fine:
-# most tools persist their own credentials after the first authenticated run.
-EnvironmentFile=-%h/.config/dotfiles/service.env
+# No services-specific env file: the unit inherits the STANDARD systemd user
+# environment. To make the Infisical machine identity available headlessly at
+# boot, put it in ~/.config/environment.d/*.conf like any other env var — the
+# user manager reads that automatically. Absent is fine; most tools persist
+# their own credentials after the first authenticated run.
 ExecStart=${exec_start}
 Restart=on-failure
 RestartSec=5

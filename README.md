@@ -95,23 +95,30 @@ ENABLE_VSCODE_CLI=1 ENABLE_TAILSCALE=1 ./bootstrap.sh
 
 ### On-Demand Actions (`services/`)
 
-Installation and running are deliberately separate. `services/` is **one generic runner** (`run.sh`) driven by a **preset map** (`presets.sh`) keyed by `tool:sub`. The runner hydrates the preset's secrets into the environment, performs its auth step, then runs the tool in the foreground.
+Installation and running are deliberately separate. `services/` is **one generic runner** (`run.sh`) driven by a **preset map** (`presets.sh`) keyed by `tool:sub`. The runner hydrates the preset's secrets into the environment, performs its auth step, then runs the tool in the foreground. Anything can be run this way — a preset just carries the tool-specific knowledge (secret path, login step) that a raw command lacks.
+
+#### Available presets
+
+The presets evolve with the repo, so this is the canonical list (`services/index.sh list` prints the same on any box):
+
+| Preset (`tool:sub`) | Args | What it does |
+|---|---|---|
+| `vscode:tunnel` | `[name]` | VS Code remote tunnel (`vscode.dev/tunnel/<name>`) |
+| `vscode:web` | `[host] [port] [token]` | VS Code web server (`serve-web`) |
+| `devtunnel:host` | `[port ...]` | host ports via a Microsoft Dev Tunnel |
+| `tailscale:up` | — | connect this machine to the tailnet |
 
 ```bash
 services/index.sh run <tool:sub> [args...]   # run a preset in the foreground
-services/index.sh list                       # show presets and managed units
+services/index.sh list                       # print presets and managed units
 
-# presets:
-services/index.sh run vscode:tunnel [name]              # VS Code tunnel (vscode.dev/tunnel/<name>)
-services/index.sh run vscode:web [host] [port] [token]  # VS Code web server (serve-web)
-services/index.sh run devtunnel:host [port ...]         # host ports via a Microsoft Dev Tunnel
-services/index.sh run tailscale:up                      # connect this machine to the tailnet
+services/index.sh run vscode:tunnel my-box   # e.g. a named tunnel
 
-# run ANY command through the same convenience layer (raw mode):
+# run ANY command through the same runner (raw mode) — no preset needed:
 services/run.sh --secret GITHUB_VSCODE_PAT@/github -- my-tool --flag
 ```
 
-Adding a tool is a new `case` in `presets.sh` (a command + its secret paths + an optional login step) — no new script file, no dispatcher wiring.
+Adding a tool is a new `case` in `presets.sh` (a command + its secret paths + an optional login step) — no new script file, no dispatcher wiring. Keep this table and the [secret table](#what-the-secret-manager-fetches) in sync when you do.
 
 ### Autostart — how services actually run
 
@@ -142,10 +149,11 @@ services/index.sh status                         # list all managed units
 
 > **Boot-time secrets:** most tools persist their own credentials after the first
 > authenticated run (VS Code uses a file keychain; `tailscaled` reconnects on its
-> own), so autostart needs no secret at boot. If a service *does* need secrets at
-> boot (e.g. Infisical machine identity), the generated systemd unit optionally
-> sources `~/.config/dotfiles/service.env` — create it yourself (chmod 600); we
-> never write secrets to disk for you.
+> own), so autostart needs no secret at boot. There is **no services-specific env
+> file** — the unit inherits the standard systemd user environment. If a service
+> *does* need the Infisical machine identity at boot, set it like any other env
+> var via `~/.config/environment.d/*.conf` (the user manager reads it
+> automatically); it is not special to services.
 >
 > **No init system?** Containers and WSL without systemd have no `systemctl --user`
 > manager; `enable` detects this, tells you, and you fall back to `run`.
@@ -181,16 +189,35 @@ Secrets are never committed or stored persistently in plaintext on disk:
 
 ### How a service gets its secrets
 
-The model is **environment variables, hydrated on demand** — the tool always just reads its secret from the env; where that value comes from differs by context:
+The model is **plain environment variables, hydrated on demand**. An env var is an env var — there is nothing "service-specific" about it. A tool always just reads its secret from the environment; where that value comes from differs by context:
 
-* **You already exported it** (e.g. a secret manager populated your shell env): `run.sh` sees the variable is set and uses it as-is. Nothing is fetched.
-* **It's unset**: `run.sh` pulls it from Infisical at start (via the machine identity) and exports it into *this process only*. The tool reads it from the env; the value is never written to disk and disappears when the process exits. Each preset declares its secrets statically as `VAR@PATH` (e.g. `GITHUB_VSCODE_PAT@/github`); raw mode takes the same specs via `--secret`.
+* **You already exported it** (e.g. a secret manager populated your env): `run.sh` sees the variable is set and uses it as-is. Nothing is fetched. The same `GITHUB_VSCODE_PAT` serves `gh`, VS Code, and dev tunnels — one env var, many consumers.
+* **It's unset**: `run.sh` pulls it from Infisical at start (via the machine identity) and exports it into *this process only*. The value is never written to disk and disappears when the process exits. Each preset declares its secrets statically as `VAR@PATH` (see the [table below](#what-the-secret-manager-fetches)); raw mode takes the same specs via `--secret`.
 
-**At boot (autostart)** there is no shell to pre-export anything, so the service hydrates its own secrets at start. The only thing that must reach the unit is the Infisical machine identity — put `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` in `~/.config/dotfiles/service.env` (chmod 600), which the generated systemd unit sources via `EnvironmentFile=-`. Everything else is fetched fresh. In practice most tools also cache their own credentials after the first authenticated run (VS Code file keychain, `tailscaled`), so even that is often unnecessary.
+**At boot (autostart)** there is no shell to pre-export anything, so the service hydrates its own secrets at start using the Infisical machine identity. That identity is **not** a services concept — it's a standard environment credential. Provide it headlessly the standard way, via `~/.config/environment.d/*.conf`, which the systemd user manager reads automatically:
 
-> Recommended: **don't** dump every secret into a persisted env file. Persist only
-> the machine identity (or nothing) and let each service pull exactly what it needs
-> at start. That keeps the "no plaintext secrets on disk" guarantee intact.
+```ini
+# ~/.config/environment.d/10-infisical.conf   (chmod 600)
+INFISICAL_CLIENT_ID=...
+INFISICAL_CLIENT_SECRET=...
+```
+
+Everything else is fetched fresh at start. In practice most tools also cache their own credentials after the first authenticated run (VS Code file keychain, `tailscaled`), so even the machine identity is often unnecessary at boot.
+
+#### What the secret manager fetches
+
+The only values the runner pulls from Infisical, and where. If the env var is already set, it wins and nothing is fetched.
+
+| Env var | Infisical path | Used by |
+|---|---|---|
+| `GITHUB_VSCODE_PAT` | `/github` | `vscode:tunnel`, `devtunnel:host` (fallback) |
+| `DEVTUNNEL_TOKEN` | `/tunnels` | `devtunnel:host` |
+| `TAILSCALE_AUTHKEY` | `/tailscale` | `tailscale:up` |
+| `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` | (the machine identity itself) | authenticates every fetch above |
+
+> Recommended: **don't** dump every secret into a persisted file. Persist only the
+> machine identity (or nothing) and let each service pull exactly what it needs at
+> start. That keeps the "no plaintext secrets on disk" guarantee intact.
 
 ---
 

@@ -26,8 +26,9 @@ set -eo pipefail
 # Secrets at boot: the tool's own persisted credentials usually suffice (VS Code
 # file keychain, tailscaled). If a service must fetch secrets at boot, only the
 # Infisical machine identity (INFISICAL_CLIENT_ID / INFISICAL_CLIENT_SECRET)
-# needs to reach the unit — put those in ~/.config/dotfiles/service.env (chmod
-# 600); everything else is fetched fresh here at start.
+# needs to reach the unit. It is a STANDARD env var, not a services concept —
+# provide it the standard way via ~/.config/environment.d/*.conf (the systemd
+# user manager reads it automatically); everything else is fetched fresh here.
 # ────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

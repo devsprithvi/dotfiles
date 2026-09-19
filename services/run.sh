@@ -92,9 +92,20 @@ if ! preset_exists "$spec"; then
     exit 1
 fi
 
-# 1. Hydrate declared secrets (static list — safe before load).
+# 1. Hydrate declared secrets (static list — safe before load). Report clearly
+#    when a declared secret could not be resolved, and why, so failures are
+#    diagnosable instead of surfacing later as a confusing tool error.
 while IFS= read -r s; do
-    [[ -n "$s" ]] && hydrate_secret "$s"
+    [[ -z "$s" ]] && continue
+    hydrate_secret "$s"
+    var="${s%%@*}"
+    if [[ -z "${!var:-}" ]]; then
+        if [[ -z "${INFISICAL_CLIENT_ID:-}" || -z "${INFISICAL_CLIENT_SECRET:-}" ]]; then
+            echo "[run] NOTE: secret '${var}' is unset and Infisical is not configured (no INFISICAL_CLIENT_ID/SECRET) — cannot fetch it." >&2
+        else
+            echo "[run] NOTE: secret '${var}' is unset and was not found in Infisical (path '${s#*@}')." >&2
+        fi
+    fi
 done < <(preset_secret_specs "$spec" || true)
 
 # 2. Build the command + auth hook now that the env is populated.

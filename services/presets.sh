@@ -76,18 +76,38 @@ load_preset() {
             local name="${1:-${VSCODE_TUNNEL_NAME:-$(hostname 2>/dev/null || echo dev)}}"
             PRESET_DESC="VS Code tunnel"
             preset_authenticate() {
-                [[ -x "$code" ]] || { echo "[run] VS Code CLI not found — ENABLE_VSCODE_CLI=1 bash packages/vscode_cli.sh" >&2; return 1; }
+                # Recompute the path: this function is called from run.sh AFTER
+                # load_preset returns, so load_preset's `local` vars are gone.
+                local code="$HOME/.local/bin/code"
+                [[ -x "$code" ]] || { echo "[run] ERROR: VS Code CLI not found — ENABLE_VSCODE_CLI=1 bash packages/vscode_cli.sh" >&2; return 1; }
                 # Persist creds to a file so headless auth survives boot/restart.
                 export VSCODE_CLI_USE_FILE_KEYCHAIN="${VSCODE_CLI_USE_FILE_KEYCHAIN:-1}"
-                if ! "$code" tunnel user show >/dev/null 2>&1; then
-                    if [[ -n "${GITHUB_VSCODE_PAT:-}" ]]; then
-                        echo "[run] Authenticating VS Code tunnel with GitHub token..."
-                        "$code" tunnel user login --provider github --access-token "$GITHUB_VSCODE_PAT" >/dev/null 2>&1 || \
-                            echo "[run] WARNING: token login did not complete; may prompt for device login." >&2
-                    else
-                        echo "[run] No PAT available; you may be prompted for device login."
+
+                # Already logged in (cached keychain from a prior run)? Nothing to do.
+                "$code" tunnel user show >/dev/null 2>&1 && return 0
+
+                if [[ -n "${GITHUB_VSCODE_PAT:-}" ]]; then
+                    echo "[run] Authenticating VS Code tunnel with GitHub token..."
+                    local out
+                    if out="$("$code" tunnel user login --provider github --access-token "$GITHUB_VSCODE_PAT" 2>&1)"; then
+                        return 0
                     fi
+                    # Surface the real reason (expired/invalid PAT, missing scope, etc.).
+                    echo "[run] ERROR: GitHub token login failed. VS Code CLI said:" >&2
+                    echo "${out}" | sed 's/^/[run]   /' >&2
+                    echo "[run] Check that GITHUB_VSCODE_PAT is valid and has the required scope." >&2
+                    return 1
                 fi
+
+                # No PAT. Device login is interactive — only viable with a terminal.
+                # Headless (systemd/boot) would hang forever, so fail loudly instead.
+                if [[ -t 0 && -t 1 ]]; then
+                    echo "[run] No GITHUB_VSCODE_PAT available; falling back to interactive device login." >&2
+                    return 0
+                fi
+                echo "[run] ERROR: no GITHUB_VSCODE_PAT and no terminal for device login (headless)." >&2
+                echo "[run] Set GITHUB_VSCODE_PAT (env) or store it in Infisical at /github, then retry." >&2
+                return 1
             }
             PRESET_CMD=( "$code" tunnel --accept-server-license-terms --name "$name" )
             ;;
@@ -99,7 +119,8 @@ load_preset() {
             local token="${3:-${VSCODE_WEB_TOKEN:-}}"
             PRESET_DESC="VS Code web server"
             preset_authenticate() {
-                [[ -x "$code" ]] || { echo "[run] VS Code CLI not found — ENABLE_VSCODE_CLI=1 bash packages/vscode_cli.sh" >&2; return 1; }
+                local code="$HOME/.local/bin/code"
+                [[ -x "$code" ]] || { echo "[run] ERROR: VS Code CLI not found — ENABLE_VSCODE_CLI=1 bash packages/vscode_cli.sh" >&2; return 1; }
             }
             PRESET_CMD=( "$code" serve-web --accept-server-license-terms --host "$host" --port "$port" )
             if [[ -n "$token" ]]; then
@@ -115,17 +136,28 @@ load_preset() {
             has_command devtunnel && devtunnel="devtunnel"
             PRESET_DESC="Microsoft Dev Tunnel host"
             preset_authenticate() {
+                local devtunnel="$HOME/.local/bin/devtunnel"
+                has_command devtunnel && devtunnel="devtunnel"
                 if [[ "$devtunnel" != "devtunnel" && ! -x "$devtunnel" ]]; then
-                    echo "[run] devtunnel not found — ENABLE_DEVTUNNEL=1 bash packages/devtunnel.sh" >&2; return 1
+                    echo "[run] ERROR: devtunnel not found — ENABLE_DEVTUNNEL=1 bash packages/devtunnel.sh" >&2; return 1
                 fi
+                # Already authenticated from a prior run? Reuse it.
+                "$devtunnel" user show >/dev/null 2>&1 && return 0
+
                 local token="${DEVTUNNEL_TOKEN:-${GITHUB_VSCODE_PAT:-}}"
-                if [[ -n "$token" ]]; then
-                    echo "[run] Authenticating devtunnel with access token..."
-                    "$devtunnel" user login -d --access-token "$token" >/dev/null 2>&1 || \
-                        echo "[run] WARNING: token login did not complete; run 'devtunnel user login' if needed." >&2
-                else
-                    echo "[run] No token available; run 'devtunnel user login' if hosting fails."
+                if [[ -z "$token" ]]; then
+                    echo "[run] ERROR: no DEVTUNNEL_TOKEN or GITHUB_VSCODE_PAT available to authenticate devtunnel." >&2
+                    echo "[run] Set one (env) or store it in Infisical at /tunnels or /github, then retry." >&2
+                    return 1
                 fi
+                echo "[run] Authenticating devtunnel with access token..."
+                local out
+                if out="$("$devtunnel" user login -d --access-token "$token" 2>&1)"; then
+                    return 0
+                fi
+                echo "[run] ERROR: devtunnel token login failed. It said:" >&2
+                echo "${out}" | sed 's/^/[run]   /' >&2
+                return 1
             }
             PRESET_CMD=( "$devtunnel" host )
             if [[ "$#" -eq 0 ]]; then
@@ -139,12 +171,23 @@ load_preset() {
         tailscale:up)
             PRESET_DESC="Tailscale up"
             preset_authenticate() {
-                has_command tailscale || { echo "[run] tailscale not found — ENABLE_TAILSCALE=1 bash packages/tailscale.sh" >&2; return 1; }
+                has_command tailscale || { echo "[run] ERROR: tailscale not found — ENABLE_TAILSCALE=1 bash packages/tailscale.sh" >&2; return 1; }
                 if tailscale status >/dev/null 2>&1; then
                     echo "[run] tailscale already connected."
                     exit 0
                 fi
-                [[ -n "${TAILSCALE_AUTHKEY:-}" ]] || { echo "[run] No auth key; run 'sudo tailscale up' manually." >&2; return 1; }
+                if [[ -z "${TAILSCALE_AUTHKEY:-}" ]]; then
+                    echo "[run] ERROR: no TAILSCALE_AUTHKEY available (env or Infisical /tailscale)." >&2
+                    echo "[run] Set it, or run 'sudo tailscale up' manually to authenticate interactively." >&2
+                    return 1
+                fi
+                # 'tailscale up' needs root; we exec 'sudo -n' which fails cryptically
+                # without passwordless sudo. Check now and explain clearly.
+                if ! can_run_privileged; then
+                    echo "[run] ERROR: 'tailscale up' needs root but no passwordless sudo is available." >&2
+                    echo "[run] Run it as root, or configure sudo, then retry." >&2
+                    return 1
+                fi
             }
             # Prefix privilege escalation into the argv (exec can't call a function).
             local pre=()

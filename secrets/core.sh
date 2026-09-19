@@ -46,7 +46,10 @@ _SECRETS_CORE_LOADED=1
 #   Every file in secrets/providers/ follows the SAME standard layout so that
 #   adding a backend is always the same exercise in the same shape:
 #
-#     1. Config          — env-overridable knobs (endpoints, ids, credentials).
+#     1. Config          — every default is a NAMED, overridable constant here
+#                          (declared `${OVERRIDE:-fallback}`). No default value
+#                          may be a magic literal buried in the logic; the parser
+#                          reads only these constants.
 #     2. Secret map      — ONE associative array, the single place that maps an
 #                          ENV VAR NAME to a locator in THIS provider's dialect:
 #                              declare -gA _<ID>_SECRET_MAP=( [VAR]="locator" )

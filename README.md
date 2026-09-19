@@ -208,36 +208,49 @@ secrets/
 
 Secrets are never committed or stored persistently in plaintext on disk:
 1. **Provider abstraction**: `SECRET_PROVIDER` selects a backend (default `infisical`). The core never logs in or parses a location — it hands `(VAR, LOCATOR)` to `_secret_provider_<id>_get`. Adding Vault/AWS/pass/etc. is a single new file in `secrets/providers/`; nothing else changes. The `infisical` backend prefers the CLI and falls back to the REST API (`curl` + `python3`, Universal Auth).
-2. **Three separated concerns**: the **env var** a tool reads (stable contract, owned by the preset), the **locator** telling the provider where the value lives (syntax owned entirely by the provider), and **which backend** to ask. Changing one never forces a change to the others.
+2. **Three separated concerns**: the **env var** a tool reads (the stable contract — services declare only this), the **mapping** from that var to a location (owned entirely by the active provider), and **which backend** to ask (`SECRET_PROVIDER`). Changing one never forces a change to the others.
 3. **Graceful degradation**: with no credentials (or `SECRET_PROVIDER=env`), lookups return empty and opt-in services fall back cleanly without breaking bootstrap.
 
-### The spec grammar and mapping
+### Where the mapping lives
 
-The core grammar is deliberately tiny and provider-neutral: `VAR[=LOCATOR]`.
-
-| Piece | Meaning |
-|---|---|
-| `VAR` | env var to export (the tool contract) |
-| `=LOCATOR` | opaque string passed verbatim to the provider; omit to use the provider's default for `VAR` |
-
-The **locator** syntax belongs to the provider. For `infisical` it is `[KEY][@[ENV:]PATH]` (key defaults to `VAR`, env to `INFISICAL_ENV`→`global`, path to `/`). A different backend would define its own — the core neither knows nor cares.
-
-Presets ship **default** specs. To repoint a var without editing a preset, add an override to **`DOTFILES_SECRET_MAP`** (keyed by var):
+A service declares only the **env var names** it needs — never a key or a path:
 
 ```bash
-# The GitHub PAT is stored under the key ADMIN_PAT at /github, but tools read
-# GITHUB_PAT. The map bridges the two — no preset edits:
+# services/presets.sh
+vscode:tunnel)  printf '%s\n' "GITHUB_PAT" ;;
+```
+
+The active provider owns the map from a var to its location, in that provider's
+own dialect. For `infisical` (`secrets/providers/infisical.sh`):
+
+```bash
+declare -gA _INFISICAL_SECRET_MAP=(
+    [GITHUB_PAT]="ADMIN_PAT@/github"   # key ADMIN_PAT, path /github
+)
+```
+
+The locator syntax is the provider's own: `[KEY][@[ENV:]PATH]`. Anything omitted
+falls back to the named constants at the top of the provider file — key to the
+var name, env to `$INFISICAL_ENV` (default `global`), path to
+`$INFISICAL_DEFAULT_PATH` (default `/`). So `DEVTUNNEL_TOKEN` mapped to
+`@/tunnels` means "key `DEVTUNNEL_TOKEN`, path `/tunnels`".
+
+To repoint a var at runtime **without editing the provider**, set
+**`DOTFILES_SECRET_MAP`** (keyed by var). It wins over the provider map:
+
+```bash
 DOTFILES_SECRET_MAP="GITHUB_PAT=ADMIN_PAT@/github"
 ```
 
-Provide it headlessly (like the machine identity) via `~/.config/environment.d/*.conf` so the systemd user manager exports it at boot.
+Precedence: `DOTFILES_SECRET_MAP` → provider map → convention. Provide the
+override headlessly via `~/.config/environment.d/*.conf` so it is set at boot.
 
 ### How a service gets its secrets
 
 The model is **plain environment variables, hydrated on demand**. A tool always just reads its secret from the environment; where that value comes from differs by context:
 
 * **You already exported it** (e.g. a secret manager populated your env): `run.sh` sees the variable is set and uses it as-is. Nothing is fetched. The same `GITHUB_PAT` serves `gh`, VS Code, and dev tunnels — one env var, many consumers.
-* **It's unset**: `secret_hydrate` resolves the spec (applying any `DOTFILES_SECRET_MAP` override), fetches from the active backend, and exports it into *this process only*. The value is never written to disk and disappears when the process exits. Raw mode takes the same specs via `--secret VAR[=LOCATOR]`.
+* **It's unset**: `secret_hydrate` resolves the var (a `DOTFILES_SECRET_MAP` override, else the active provider's map), fetches from the backend, and exports it into *this process only*. The value is never written to disk and disappears when the process exits. Raw mode can also pass an explicit locator via `--secret VAR[=LOCATOR]`.
 
 **At boot (autostart)** there is no shell to pre-export anything, so the service hydrates its own secrets at start using the Infisical machine identity. That identity is **not** a services concept — it's a standard environment credential. Provide it headlessly the standard way, via `~/.config/environment.d/*.conf`, which the systemd user manager reads automatically:
 

@@ -20,13 +20,23 @@ _SECRET_PROVIDER_INFISICAL_LOADED=1
 #     4. Provider contract — available / get / describe  (+ register)
 # ════════════════════════════════════════════════════════════════════════════
 
-# ── 1. Config (all env-overridable) ─────────────────────────────────────────
-#   INFISICAL_ENV         default environment slug            (default: global)
-#   INFISICAL_PROJECT_ID  workspace id                        (baked default)
-#   INFISICAL_TOKEN       pre-issued access token             (skips login)
+# ── 1. Config — every default is a named, overridable constant ──────────────
+# No magic literals are buried in the logic below: the locator parser reads ONLY
+# these variables, so this block is the single source of truth for defaults.
+# Each is `${OVERRIDE:-fallback}`, so exporting the env var before load wins.
+#
+#   INFISICAL_ENV           environment slug used when a locator omits one
+#   INFISICAL_DEFAULT_PATH  secret path used when a locator omits one
+#   INFISICAL_PROJECT_ID    workspace id
+#   INFISICAL_TOKEN         pre-issued access token (skips machine-identity login)
 #   INFISICAL_CLIENT_ID   \ machine identity used to mint a short-lived token
 #   INFISICAL_CLIENT_SECRET/  when INFISICAL_TOKEN is not supplied
+INFISICAL_ENV="${INFISICAL_ENV:-global}"
+INFISICAL_DEFAULT_PATH="${INFISICAL_DEFAULT_PATH:-/}"
 INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-e3e7a48d-605a-4ae2-b202-2dbf45918227}"
+
+# A locator that omits the KEY reuses the variable's own name. This is a
+# structural rule (not a tunable value), so it is applied in code as "${key:-$var}".
 
 # ── 2. Secret map — WHERE each env var lives in Infisical ────────────────────
 # This is the scalable heart of the provider: the single table that maps a
@@ -35,8 +45,9 @@ INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-e3e7a48d-605a-4ae2-b202-2dbf459182
 #
 # Value syntax is this provider's locator dialect:  [KEY][@[ENV:]PATH]
 #   KEY   the secret's name in Infisical   — omit to reuse the ENV VAR NAME
-#   ENV   environment slug                 — omit to use $INFISICAL_ENV → global
-#   PATH  folder path in Infisical         — omit to use "/"
+#   ENV   environment slug                 — omit to use $INFISICAL_ENV
+#   PATH  folder path in Infisical         — omit to use $INFISICAL_DEFAULT_PATH
+# (Both defaults are the named constants declared in section 1 above.)
 #
 # To ADD a secret: add one row. To move it: edit its row. Nothing else changes.
 #
@@ -49,7 +60,8 @@ declare -gA _INFISICAL_SECRET_MAP=(
 )
 
 # Look up the locator for a variable. An explicit map row wins; otherwise return
-# "" so the parser applies its conventional defaults (key = var name, path = /).
+# "" so the parser applies its defaults (key = var name, env = $INFISICAL_ENV,
+# path = $INFISICAL_DEFAULT_PATH).
 _infisical_locator_for() { printf '%s' "${_INFISICAL_SECRET_MAP[$1]:-}"; }
 
 # ── 3. Private helpers (implementation detail; not part of the contract) ─────
@@ -74,12 +86,12 @@ _infisical_parse_locator() {
         _IF_ENV="$env_candidate"
         _IF_PATH="${rest#*:}"
     else
-        _IF_ENV="${INFISICAL_ENV:-global}"
+        _IF_ENV="$INFISICAL_ENV"
         _IF_PATH="$rest"
     fi
 
-    # PATH defaults to root.
-    [[ -z "$_IF_PATH" ]] && _IF_PATH="/"
+    # PATH defaults to the configured root.
+    [[ -z "$_IF_PATH" ]] && _IF_PATH="$INFISICAL_DEFAULT_PATH"
 }
 
 # Resolve a (var, locator) pair into _IF_KEY / _IF_ENV / _IF_PATH. When the
@@ -174,7 +186,7 @@ secret_provider_register infisical
 # ── Backward-compatible shim (not part of the contract) ──────────────────────
 # Older callers used: fetch_infisical_secret KEY [env] [path]
 fetch_infisical_secret() {
-    local key="$1" env="${2:-${INFISICAL_ENV:-global}}" path="${3:-/}"
+    local key="$1" env="${2:-$INFISICAL_ENV}" path="${3:-$INFISICAL_DEFAULT_PATH}"
     _infisical_get_cli "$key" "$env" "$path" && return 0
     _infisical_get_api "$key" "$env" "$path"
 }

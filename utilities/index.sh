@@ -14,17 +14,12 @@ LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${LIB_DIR}/os.sh"
 source "${LIB_DIR}/logger.sh"
 source "${LIB_DIR}/helpers.sh"
+source "${LIB_DIR}/../secrets/index.sh"
 source "${LIB_DIR}/service_manager.sh"
 
 # ── Step 2: Load Installer Modules ──────────────────────────────────────────
 # Generic, reusable package-manager wrappers. Each module provides a thin
-# function around a system package manager (apt, dnf, pacman, etc.).
-# Individual tools/packages live in packages/ — NOT here.
-source "${LIB_DIR}/installers/url.sh"
-source "${LIB_DIR}/installers/apk.sh"
-source "${LIB_DIR}/installers/apt.sh"
-source "${LIB_DIR}/installers/dnf.sh"
-source "${LIB_DIR}/installers/pacman.sh"
-source "${LIB_DIR}/installers/brew.sh"
-source "${LIB_DIR}/installers/scoop.sh"
-source "${LIB_DIR}/installers/winget.sh"
+# function around a system package manager (apt, dnf, pacman, etc.). They live
+# alongside their only consumers under packages/installers/ and are auto-loaded
+# by that directory's index.
+source "${LIB_DIR}/../packages/installers/index.sh"

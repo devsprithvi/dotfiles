@@ -24,10 +24,14 @@ fi
 # using the Machine Identity credentials injected by the container environment.
 # Once authenticated, the exported INFISICAL_TOKEN allows native, non-interactive 
 # credentials resolution for git operations and chezmoi templates.
+#
+# The workspace id is exported UNCONDITIONALLY so that both the dotfiles secret
+# subsystem and any raw `infisical` CLI command you type have a project to point
+# at. Without this, a bare `infisical secrets ...` fails with
+# "run infisical init ... or pass in project id with --projectId".
+export INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-e3e7a48d-605a-4ae2-b202-2dbf45918227}"
+
 if [ -n "$INFISICAL_CLIENT_ID" ] && [ -n "$INFISICAL_CLIENT_SECRET" ] && [ -z "$INFISICAL_TOKEN" ]; then
-    # Target workspace ID (nucleus project)
-    export INFISICAL_PROJECT_ID="e3e7a48d-605a-4ae2-b202-2dbf45918227"
-    
     # Non-interactive Universal Auth login via API loopback
     export INFISICAL_TOKEN=$(curl -s -X POST https://app.infisical.com/api/v1/auth/universal-auth/login \
         -H "Content-Type: application/json" \

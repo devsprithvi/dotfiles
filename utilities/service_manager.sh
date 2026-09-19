@@ -43,23 +43,68 @@ _service_log_dir() { printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/dotfil
 # ── Linux / systemd (user scope) ────────────────────────────────────────────
 _systemd_user_dir() { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; }
 
-# True only when a *user* systemd manager is actually reachable (not the case in
-# many containers or a WSL distro without systemd enabled).
+# Per-user runtime dir that holds the user bus socket (systemctl --user needs it).
+_systemd_runtime_dir() { printf '%s\n' "/run/user/$(id -u)"; }
+
+# A headless / non-login shell (SSH, cloud-init, chezmoi apply) often has no
+# XDG_RUNTIME_DIR, so `systemctl --user` can't find the bus even when the user
+# manager is running. Point it at the standard location when it exists.
+_systemd_export_runtime_dir() {
+    [[ -n "${XDG_RUNTIME_DIR:-}" ]] && return 0
+    local rt; rt="$(_systemd_runtime_dir)"
+    [[ -d "$rt" ]] && export XDG_RUNTIME_DIR="$rt"
+    return 0
+}
+
+# systemd is the SYSTEM init here (PID 1). True even when no *user* manager is
+# running yet — that case we can bootstrap via linger. False in containers / a
+# WSL distro without systemd, where there is nothing to drive.
+_systemd_is_init() {
+    has_command systemctl && [[ -d /run/systemd/system ]]
+}
+
+# The per-user systemd manager is reachable RIGHT NOW.
 _has_systemd_user() {
     has_command systemctl || return 1
+    _systemd_export_runtime_dir
     systemctl --user show-environment >/dev/null 2>&1
 }
 
-# Best-effort: let this user's services run at boot without an active login.
+# Let this user's services run at boot without an active login. Enabling linger
+# also starts user@UID.service immediately, creating /run/user/UID and its bus —
+# which is exactly what a headless server (no interactive session) needs.
 # A user can usually enable their own linger; fall back to privilege if not.
 _systemd_enable_linger() {
+    has_command loginctl || return 1
     loginctl enable-linger "$(id -un)" >/dev/null 2>&1 && return 0
-    run_privileged loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+    run_privileged loginctl enable-linger "$(id -un)" >/dev/null 2>&1
+}
+
+# Ensure `systemctl --user` works, bootstrapping the user manager via linger if
+# it isn't up yet. Returns 0 once the user bus is reachable, 1 if it can't be.
+_systemd_ensure_user_manager() {
+    _has_systemd_user && return 0
+    _systemd_is_init  || return 1
+
+    log_info "no active systemd user session — enabling linger to start it headlessly..."
+    _systemd_enable_linger || {
+        log_error "could not enable linger for $(id -un) (loginctl missing or no privilege)."
+        return 1
+    }
+
+    # user@UID.service starts asynchronously; wait briefly for its bus to appear.
+    local i
+    for i in {1..20}; do
+        _has_systemd_user && return 0
+        sleep 0.5
+    done
+    return 1
 }
 
 _systemd_register() {
     local name="$1" desc="$2"; shift 2
     local unit_dir unit_file exec_start
+    _systemd_export_runtime_dir
     unit_dir="$(_systemd_user_dir)"
     unit_file="${unit_dir}/${SERVICE_PREFIX}${name}.service"
     mkdir -p "$unit_dir"
@@ -93,14 +138,22 @@ EOF
     log_success "registered systemd user unit: ${SERVICE_PREFIX}${name}.service"
 }
 
-_systemd_enable()  { _systemd_enable_linger; systemctl --user enable --now "${SERVICE_PREFIX}$1.service"; }
+_systemd_enable()  {
+    _systemd_ensure_user_manager || {
+        log_error "systemd user manager is unreachable and could not be started headlessly."
+        return 1
+    }
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    systemctl --user enable --now "${SERVICE_PREFIX}$1.service"
+}
 _systemd_disable() {
+    _systemd_export_runtime_dir
     systemctl --user disable --now "${SERVICE_PREFIX}$1.service" >/dev/null 2>&1 || true
     rm -f "$(_systemd_user_dir)/${SERVICE_PREFIX}$1.service"
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 }
-_systemd_status()  { systemctl --user --no-pager status "${SERVICE_PREFIX}$1.service"; }
-_systemd_list()    { systemctl --user list-unit-files "${SERVICE_PREFIX}*.service" --no-pager 2>/dev/null || true; }
+_systemd_status()  { _systemd_export_runtime_dir; systemctl --user --no-pager status "${SERVICE_PREFIX}$1.service"; }
+_systemd_list()    { _systemd_export_runtime_dir; systemctl --user list-unit-files "${SERVICE_PREFIX}*.service" --no-pager 2>/dev/null || true; }
 
 # ── macOS / launchd (LaunchAgent) ───────────────────────────────────────────
 _launchd_dir() { printf '%s\n' "$HOME/Library/LaunchAgents"; }
@@ -174,7 +227,10 @@ _win_list()    { schtasks /Query /FO LIST 2>/dev/null | grep -i 'dotfiles\\\\' |
 
 # ── Public dispatch ──────────────────────────────────────────────────────────
 service_supported() {
-    if os_is_linux;   then _has_systemd_user; return $?; fi
+    # Linux: drivable if the user bus is already up OR systemd is the init and we
+    # can bootstrap a user manager via linger. A cold headless boot has no active
+    # user session yet, so gating on the live bus alone would wrongly refuse.
+    if os_is_linux;   then _has_systemd_user || _systemd_is_init; return $?; fi
     if os_is_macos;   then has_command launchctl; return $?; fi
     if os_is_windows; then has_command schtasks;  return $?; fi
     return 1
@@ -183,7 +239,11 @@ service_supported() {
 # Print a human-friendly reason when the init system can't be driven here.
 service_unsupported_reason() {
     if os_is_linux; then
-        echo "no reachable systemd --user manager (containers / WSL without systemd don't have one)"
+        if ! has_command systemctl; then
+            echo "systemctl not found (no systemd)"
+        else
+            echo "systemd is not the init system here (containers / WSL without systemd don't have one)"
+        fi
     elif os_is_macos; then
         echo "launchctl not found"
     elif os_is_windows; then

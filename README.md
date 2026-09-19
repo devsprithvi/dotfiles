@@ -157,8 +157,16 @@ services/index.sh status                         # list all managed units
 > var via `~/.config/environment.d/*.conf` (the user manager reads it
 > automatically); it is not special to services.
 >
-> **No init system?** Containers and WSL without systemd have no `systemctl --user`
-> manager; `enable` detects this, tells you, and you fall back to `run`.
+> **Headless boot (SSH / cloud-init):** on a server with no interactive login there
+> is no active `systemd --user` session yet, and `XDG_RUNTIME_DIR` is unset — so a
+> naive `systemctl --user` can't reach the user bus. `enable` handles this: it sets
+> `XDG_RUNTIME_DIR`, enables **linger** (which starts `user@UID.service` now and at
+> every boot), waits for the user bus, then enables the unit. No interactive login
+> required.
+>
+> **No init system?** Containers and WSL *without* systemd have no `systemctl --user`
+> manager at all; `enable` detects that (systemd isn't PID 1), tells you, and you
+> fall back to `run`.
 
 **Configuration Variables (read by the services at run time):**
 * `VSCODE_TUNNEL_NAME`: Tunnel name (defaults to `$(hostname)`).

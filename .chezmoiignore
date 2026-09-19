@@ -1,5 +1,6 @@
 bootstrap.sh
 utilities/
 packages/
+components/
 doc/
 README.md

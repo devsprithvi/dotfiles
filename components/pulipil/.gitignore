@@ -1,0 +1,12 @@
+# Build artefacts
+/bin/
+*.exe
+*.test
+*.out
+
+# Go
+vendor/
+
+# Editor / OS
+.DS_Store
+*.swp

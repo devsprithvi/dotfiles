@@ -1,0 +1,98 @@
+{
+  "name": "pulipil-vscode",
+  "displayName": "pulipil",
+  "description": "Real-time, provider-aware completion for pulipil.cue package manifests, powered by the pulipil language server.",
+  "version": "0.1.0",
+  "publisher": "devsprithvi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/devsprithvi/pulipil"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "pulipil",
+    "cue",
+    "package manager",
+    "completion",
+    "lsp"
+  ],
+  "activationEvents": [
+    "onLanguage:cue",
+    "workspaceContains:**/pulipil.cue"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "cue",
+        "aliases": [
+          "CUE",
+          "cue"
+        ],
+        "extensions": [
+          ".cue"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "pulipil.restartServer",
+        "title": "pulipil: Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "pulipil",
+      "properties": {
+        "pulipil.server.path": {
+          "type": "string",
+          "default": "pulipil",
+          "markdownDescription": "Path to the `pulipil` binary. Defaults to `pulipil` on your `PATH`. Set an absolute path if it is installed elsewhere."
+        },
+        "pulipil.server.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "lsp",
+            "--stdio"
+          ],
+          "description": "Arguments used to launch the language server over stdio."
+        },
+        "pulipil.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace the JSON-RPC traffic between VS Code and the pulipil language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

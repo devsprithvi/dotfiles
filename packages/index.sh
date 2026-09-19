@@ -45,6 +45,13 @@ run_package "gh"
 run_package "infisical"
 run_package "antigravity_cli"
 
+# ── 3. Optional / controlled tools (env-var gated) ──────────────────────────
+# These packages only install when their corresponding ENABLE_* env var is set.
+# See each script's header for control variables and dependencies.
+run_package "vscode_cli"
+run_package "devtunnel"
+run_package "tailscale"
+
 echo ""
 echo "╔══════════════════════════════════════════╗"
 echo "║       All packages installed!            ║"

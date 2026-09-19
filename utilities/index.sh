@@ -14,7 +14,9 @@ source "${LIB_DIR}/os.sh"
 source "${LIB_DIR}/helpers.sh"
 
 # ── Step 2: Load Installer Modules ──────────────────────────────────────────
-# Symmetrically load the modular, self-contained installer wrappers.
+# Generic, reusable package-manager wrappers. Each module provides a thin
+# function around a system package manager (apt, dnf, pacman, etc.).
+# Individual tools/packages live in packages/ — NOT here.
 source "${LIB_DIR}/installers/url.sh"
 source "${LIB_DIR}/installers/apk.sh"
 source "${LIB_DIR}/installers/apt.sh"
@@ -23,4 +25,3 @@ source "${LIB_DIR}/installers/pacman.sh"
 source "${LIB_DIR}/installers/brew.sh"
 source "${LIB_DIR}/installers/scoop.sh"
 source "${LIB_DIR}/installers/winget.sh"
-source "${LIB_DIR}/installers/vscode_cli.sh"

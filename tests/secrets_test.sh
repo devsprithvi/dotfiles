@@ -3,9 +3,9 @@
 # ── Secrets subsystem tests (mock, no network) ──────────────────────────────
 # Verifies the provider-agnostic resolution rules and the infisical secret map
 # WITHOUT contacting any store: the network transports are stubbed so a "fetch"
-# just echoes the resolved coordinates. Run it directly:
+# just echoes the resolved coordinates. Run it directly from the repo root:
 #
-#     bash secrets/secrets_test.sh
+#     bash tests/secrets_test.sh
 #
 # Exits 0 when every assertion passes, non-zero otherwise.
 # ────────────────────────────────────────────────────────────────────────────
@@ -86,9 +86,9 @@ echo "── 5. The null 'env' provider fetches nothing ──"
 )
 
 echo "── 6. Presets declare bare names only (no provider dialect) ──"
-source "${SCRIPT_DIR}/../services/presets.sh" >/dev/null 2>&1
-assert_eq "vscode:tunnel spec is a bare var name" \
-    "GITHUB_PAT" \
+source "${SCRIPT_DIR}/../commands/presets/index.sh" >/dev/null 2>&1
+assert_eq "vscode:tunnel declares no secret (auth is a manual login)" \
+    "" \
     "$(preset_secret_specs vscode:tunnel | tr '\n' ' ' | sed 's/ *$//')"
 assert_eq "devtunnel:host lists bare var names" \
     "DEVTUNNEL_TOKEN GITHUB_PAT" \

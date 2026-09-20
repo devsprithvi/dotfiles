@@ -7,8 +7,8 @@ set -eo pipefail
 # Installs the Tailscale VPN/mesh networking client.
 #
 # Boundary: this script ONLY installs. Authenticating and connecting to a
-# tailnet ("tailscale up") is a runtime action: services/index.sh run tailscale:up
-# (via the generic runner services/run.sh + presets.sh).
+# tailnet ("tailscale up") is a startup command (preset tailscale:up) — declared
+# via DOTFILES_STARTUP and run by commands/run.sh + commands/presets/.
 #
 # Control: ENABLE_TAILSCALE=1 to install (optional, off by default)
 # ────────────────────────────────────────────────────────────────────────────

@@ -29,9 +29,11 @@ dotfiles/
 ├── .chezmoiscripts/      # Chezmoi lifecycle triggers (runs package installation once)
 ├── packages/             # INSTALL only — index.sh installs every tool, one script each
 │   └── installers/       # Generic package manager abstractions (apt, brew, dnf, etc.)
-├── services/             # RUN — one generic runner + a preset map; run by hand OR autostart via the OS init
-├── utilities/            # Shared libraries (OS detection, logging, privilege handling, secrets, service manager)
+├── commands/             # RUN — preset commands + runner (run.sh) + boot registrar (startup.sh) + autostart.sh
+│   └── presets/          # One file per tool (vscode, tailscale, devtunnel) + the loader index
+├── utilities/            # Shared libraries (OS detection, logging, privilege handling, secrets bridge)
 │   └── logger.sh         # Dedicated logging facility (timestamped, leveled, console + file)
+├── tests/                # Offline unit tests (e.g. secrets_test.sh); not deployed
 ├── components/           # Standalone projects under development, parked here (NOT deployed)
 └── dot_*                 # Managed user configurations mapped directly to $HOME
 ```
@@ -41,10 +43,10 @@ dotfiles/
 The layering enforces one hard boundary: **install** and **run** are separate.
 
 * **`packages/`**: Installation only. Each script installs exactly one tool (download the binary, or defer to a package manager) and exits. It performs **no** authentication, tunnel/service registration, or `tailscale up` — those are runtime concerns. This is what `chezmoi` runs once during bootstrap.
-* **`services/`**: Runtime actions only. There is **one generic runner** (`run.sh`) plus a **declarative preset map** (`presets.sh`) keyed by `tool:sub` — not one script per tool. The runner hydrates secrets from the secret manager into environment variables, performs the preset's auth step, then execs the tool in the foreground. It never installs; if a tool is missing the preset points you at the matching package. `run.sh` also runs a **raw command** directly (`--secret VAR@PATH -- CMD...`). Services run two ways: **by hand** (`run`) or **supervised by the OS** so they autostart at boot/login (`enable` — see [Autostart](#autostart--how-services-actually-run)).
+* **`commands/`**: Runtime actions only. A **command** is a preset — a pre-designed command plus a small convenience layer — defined **one file per tool** under `commands/presets/` (keyed by `tool:sub`); `commands/presets/index.sh` is the tiny loader. `commands/run.sh` is the generic engine: it hydrates secrets into the environment, runs the preset's non-interactive auth check (which reuses any existing login instead of repeating it), then execs the tool in the foreground. `commands/startup.sh` is the **dotfile startup**: it turns the declared list into OS autostart units so those commands run at every boot. This folder is ignored by chezmoi (never copied to `$HOME`) — you don't run it by hand; you declare what should autostart (see [Autostart](#autostart--how-commands-actually-run)). `run.sh` can also run a **raw command** directly (`--secret VAR@PATH -- CMD...`).
 * **`packages/installers/`**: Low-level package manager wrappers. Uniform, idempotent helpers around system package managers (`apt`, `brew`, `dnf`, `pacman`, etc.) so packages don't duplicate distro-specific install logic. They live inside `packages/` because the package scripts are their only consumers.
-* **`utilities/`**: Core shared libraries for OS/architecture discovery (`os.sh`), the dedicated logger (`logger.sh`), privilege escalation and credential lookups (`helpers.sh`), and the init-system abstraction that registers autostart units (`service_manager.sh`). Sourced by both packages and services.
-* **`utilities/logger.sh`**: A single, dependency-free logging facility used across the whole lifecycle (bootstrap → install → services). Every line is timestamped and leveled; output goes to both the console and a persistent per-run log file so failures are diagnosable after the fact. See [Logging & Diagnostics](#-logging--diagnostics).
+* **`utilities/`**: Core shared libraries for OS/architecture discovery (`os.sh`), the dedicated logger (`logger.sh`), and privilege escalation and credential lookups (`helpers.sh`). Sourced across the whole repo. The OS init-system abstraction that registers autostart units is **not** here — it lives in `commands/autostart.sh`, next to its only consumer `commands/startup.sh`.
+* **`utilities/logger.sh`**: A single, dependency-free logging facility used across the whole lifecycle (bootstrap → install → startup). Every line is timestamped and leveled; output goes to both the console and a persistent per-run log file so failures are diagnosable after the fact. See [Logging & Diagnostics](#-logging--diagnostics).
 * **`components/`**: Standalone side-projects being developed alongside these dotfiles and parked here for now. They are **not** part of the bootstrap flow and are excluded from `chezmoi apply` (see [Components](#-components-under-development)).
 
 ---
@@ -82,7 +84,7 @@ Applied automatically during bootstrap without manual intervention:
 ### Controlled / Optional Tools
 Certain heavy tools or remote-access daemons are opt-in, controlled via environment variables:
 
-These flags only control **installation** (what `chezmoi`/bootstrap installs). Running the tools is a separate step — see [On-Demand Actions](#on-demand-actions-services) below.
+These flags only control **installation** (what `chezmoi`/bootstrap installs). Running the tools is a separate step — see [Commands & Startup](#commands--startup-commands) below.
 
 | Feature / Tool | Trigger Flag | Installs |
 |---|---|---|
@@ -95,36 +97,43 @@ These flags only control **installation** (what `chezmoi`/bootstrap installs). R
 ENABLE_VSCODE_CLI=1 ENABLE_TAILSCALE=1 ./bootstrap.sh
 ```
 
-### On-Demand Actions (`services/`)
+### Commands & Startup (`commands/`)
 
-Installation and running are deliberately separate. `services/` is **one generic runner** (`run.sh`) driven by a **preset map** (`presets.sh`) keyed by `tool:sub`. The runner hydrates the preset's secrets into the environment, performs its auth step, then runs the tool in the foreground. Anything can be run this way — a preset just carries the tool-specific knowledge (secret path, login step) that a raw command lacks.
+Installation and running are deliberately separate. A **command** is a *preset*: a pre-designed command plus a small convenience layer, defined **one file per tool** in `commands/presets/`, keyed by `tool:sub`. `commands/run.sh` is the engine — it hydrates the preset's secrets into the environment, runs its non-interactive auth check, then execs the tool in the foreground. The **dotfile startup** (`commands/startup.sh`) runs whichever commands you declare automatically at every boot.
 
-#### Available presets
+#### Available preset commands
 
-The presets evolve with the repo, so this is the canonical list (`services/index.sh list` prints the same on any box):
-
-| Preset (`tool:sub`) | Args | What it does |
+| Command (`tool:sub`) | Runtime settings (env) | What it does |
 |---|---|---|
-| `vscode:tunnel` | `[name]` | VS Code remote tunnel (`vscode.dev/tunnel/<name>`) |
-| `vscode:web` | `[host] [port] [token]` | VS Code web server (`serve-web`) |
-| `devtunnel:host` | `[port ...]` | host ports via a Microsoft Dev Tunnel |
-| `tailscale:up` | — | connect this machine to the tailnet |
+| `vscode:tunnel` | `VSCODE_TUNNEL_NAME` | VS Code remote tunnel (`vscode.dev/tunnel/<name>`) |
+| `vscode:web` | `VSCODE_WEB_HOST` / `_PORT` / `_TOKEN` | VS Code web server (`serve-web`) |
+| `devtunnel:host` | — | host ports via a Microsoft Dev Tunnel |
+| `tailscale:up` | `TAILSCALE_AUTHKEY` | connect this machine to the tailnet |
+
+**You normally never run these by hand** — `commands/` is ignored by chezmoi and isn't in your `$HOME`. You declare which ones autostart (next section). The engine is available for one-off debugging from the source dir if needed:
 
 ```bash
-services/index.sh run <tool:sub> [args...]   # run a preset in the foreground
-services/index.sh list                       # print presets and managed units
-
-services/index.sh run vscode:tunnel my-box   # e.g. a named tunnel
-
-# run ANY command through the same runner (raw mode) — no preset needed:
-services/run.sh --secret GITHUB_PAT=ADMIN_PAT@/github -- my-tool --flag
+# one-off, from the chezmoi source dir (~/.local/share/chezmoi):
+commands/run.sh <tool:sub>                                   # run a preset once, foreground
+commands/run.sh --secret GITHUB_PAT=ADMIN_PAT@/github -- CMD  # raw command, no preset
 ```
 
-Adding a tool is a new `case` in `presets.sh` (a command + its secret paths + an optional login step) — no new script file, no dispatcher wiring. Keep this table and the [secret table](#what-the-secret-manager-fetches) in sync when you do.
+> **`vscode:tunnel` — log in ONCE (manually), then it autostarts forever.**
+> Authentication and running are separate jobs. The tunnel service rejects GitHub
+> PATs ([microsoft/vscode#310726](https://github.com/microsoft/vscode/issues/310726)),
+> so the credential can only come from an interactive OAuth login — done with the
+> VS Code CLI's own command, which authenticates *without* starting a tunnel:
+> `code tunnel user login --provider github`. Run it once on the machine, open the
+> printed `github.com/login/device` link and enter the code. The VS Code CLI
+> stores that login itself and reuses it on every later boot. The `vscode:tunnel`
+> command only *runs* the tunnel; until you've logged in it just prints that
+> command and stops cleanly (no restart loop) rather than trying to log in for you.
 
-### Autostart — how services actually run
+Adding a tool is a new file under `commands/presets/` — one file per tool, defining its `list` line, the secrets it needs, and how it runs (`_preset_<tool>_load`, with an optional non-interactive `preset_authenticate`). No dispatcher wiring, no single shared preset file to edit. Keep this table and the [secret table](#what-the-secret-manager-fetches) in sync when you do.
 
-`chezmoi` can't run a service for you: a `run_` script must **finish** during `chezmoi apply`, and a tunnel / web server / VPN session never finishes. So instead of running them, we hand the ones you declare to the OS's own init system, which starts and supervises them:
+### Autostart — how commands actually run
+
+`chezmoi` can't keep a command running for you: a `run_` script must **finish** during `chezmoi apply`, and a tunnel / web server / VPN session never finishes. So instead of running them, we hand the ones you declare to the OS's own init system, which starts and supervises them:
 
 | OS | Mechanism | Where |
 |---|---|---|
@@ -132,49 +141,52 @@ Adding a tool is a new `case` in `presets.sh` (a command + its secret paths + an
 | **macOS** | launchd **LaunchAgent** (`RunAtLoad`, `KeepAlive`) | `~/Library/LaunchAgents/dotfiles-<name>.plist` |
 | **Windows** | Task Scheduler **logon task** (best-effort) | `dotfiles\<name>` |
 
-**Declare what autostarts** via the `DOTFILES_SERVICES` env var (a space-separated list of `tool:sub` specs) — symmetric with the `ENABLE_*` install flags. Chezmoi's `run_onchange_register-services` script reads it during `apply` and registers exactly those. Empty (the default) touches nothing.
+**The whole interface is one declaration.** Set the `DOTFILES_STARTUP` env var (a space-separated list of `tool:sub` presets) when you apply — symmetric with the `ENABLE_*` install flags. During `chezmoi apply`, `run_onchange_register-startup` reconciles that list into autostart units: everything listed is enabled to start at every boot, and **anything previously managed but no longer listed is removed**. The list is the single source of truth; empty (the default) removes everything. Per-preset settings come from that preset's own env vars, so the list stays a plain set of names.
 
 ```bash
 # install VS Code CLI + Tailscale, then autostart a tunnel and the tailnet:
 ENABLE_VSCODE_CLI=1 ENABLE_TAILSCALE=1 \
-DOTFILES_SERVICES="vscode:tunnel tailscale:up" ./bootstrap.sh
+DOTFILES_STARTUP="vscode:tunnel tailscale:up" ./bootstrap.sh
+
+# later: change the set by re-applying with a different list
+DOTFILES_STARTUP="tailscale:up" chezmoi apply    # drops the tunnel, keeps tailscale
+DOTFILES_STARTUP="" chezmoi apply                # removes everything we manage
 ```
 
-Manage units directly at any time:
+There is no manual enable/disable/status command — editing `DOTFILES_STARTUP` and re-applying is how you turn things on and off. Inspect a running unit with the OS's own tools:
 
 ```bash
-services/index.sh enable  vscode:tunnel my-box   # register + start now, and at boot/login
-services/index.sh status  vscode:tunnel          # show status
-services/index.sh disable vscode:tunnel          # stop + remove the unit
-services/index.sh status                         # list all managed units
+# Linux:
+systemctl --user status dotfiles-vscode-tunnel
+journalctl --user -u dotfiles-vscode-tunnel -f
 ```
 
 > **Boot-time secrets:** most tools persist their own credentials after the first
-> authenticated run (VS Code uses a file keychain; `tailscaled` reconnects on its
-> own), so autostart needs no secret at boot. There is **no services-specific env
-> file** — the unit inherits the standard systemd user environment. If a service
+> authenticated run (VS Code stores its login; `tailscaled` reconnects on its
+> own), so autostart needs no secret at boot. There is **no startup-specific env
+> file** — the unit inherits the standard systemd user environment. If a command
 > *does* need the Infisical machine identity at boot, set it like any other env
 > var via `~/.config/environment.d/*.conf` (the user manager reads it
-> automatically); it is not special to services.
+> automatically); it is not special to startup.
 >
 > **Headless boot (SSH / cloud-init):** on a server with no interactive login there
 > is no active `systemd --user` session yet, and `XDG_RUNTIME_DIR` is unset — so a
-> naive `systemctl --user` can't reach the user bus. `enable` handles this: it sets
-> `XDG_RUNTIME_DIR`, enables **linger** (which starts `user@UID.service` now and at
-> every boot), waits for the user bus, then enables the unit. No interactive login
+> naive `systemctl --user` can't reach the user bus. The reconciler handles this: it
+> sets `XDG_RUNTIME_DIR`, enables **linger** (which starts `user@UID.service` now and
+> at every boot), waits for the user bus, then enables the unit. No interactive login
 > required.
 >
 > **No init system?** Containers and WSL *without* systemd have no `systemctl --user`
-> manager at all; `enable` detects that (systemd isn't PID 1), tells you, and you
-> fall back to `run`.
+> manager at all; the reconciler detects that (systemd isn't PID 1), warns, and
+> registers nothing.
 
-**Configuration Variables (read by the services at run time):**
+**Configuration Variables (read by the commands at run time):**
 * `VSCODE_TUNNEL_NAME`: Tunnel name (defaults to `$(hostname)`).
 * `VSCODE_WEB_HOST` / `VSCODE_WEB_PORT` / `VSCODE_WEB_TOKEN`: web server bind host (`0.0.0.0`), port (`8000`), and optional connection token.
-* `GITHUB_PAT`: GitHub personal access token for non-interactive VS Code tunnel / dev tunnel login (default source: key `ADMIN_PAT` at `/github`).
+* `GITHUB_PAT`: GitHub personal access token for non-interactive **dev tunnel** login (default source: key `ADMIN_PAT` at `/github`). Note: the **VS Code tunnel does not accept PATs** — it needs a manual `code tunnel user login`.
 * `DEVTUNNEL_TOKEN`: Dev Tunnels access token (otherwise fetched at `/tunnels`).
 * `TAILSCALE_AUTHKEY`: Auth key for non-interactive connect (otherwise fetched at `/tailscale`).
-* `DOTFILES_SERVICES`: space-separated `tool:sub` list to autostart at bootstrap/apply.
+* `DOTFILES_STARTUP`: space-separated `tool:sub` list of preset commands to autostart at every boot (declared at bootstrap/apply; the single source of truth).
 * `DOTFILES_SECRET_MAP`: per-var source overrides, e.g. `GITHUB_PAT=ADMIN_PAT@/github` — change *where* a secret comes from without editing any preset.
 * `SECRET_PROVIDER`: secret backend id (default `infisical`; `env` = use only pre-set vars).
 * `INFISICAL_ENV`: default environment slug for `infisical` lookups (default `global`).
@@ -182,14 +194,16 @@ services/index.sh status                         # list all managed units
 > `vscode web` runs without a connection token unless one is supplied — bind it to
 > localhost or place it behind a tunnel/VPN/reverse proxy on shared networks.
 
-> **Design — one generic service, presets as data.** There are no per-tool
-> service scripts. `run.sh` is the single runner (hydrate secrets → authenticate
-> → exec), and `presets.sh` is a declarative map that supplies the tool-specific
-> knowledge a raw command lacks: which secret to fetch, how to log in, small
-> quirks. This keeps the convenience layer while collapsing the tool files into
-> data, and lines up with the `pulipil` direction (declare commands + services,
-> an engine runs them). Prefer a preset for known tools; use `run.sh --secret ...
-> -- CMD` for anything ad-hoc.
+> **Design — one generic runner, one preset file per tool, one startup list.**
+> `commands/run.sh` is the single engine (hydrate secrets → non-interactive auth
+> check → exec). The tool-specific knowledge a raw command lacks — the command to
+> run, the secret names it needs, its auth check — lives in its own file under
+> `commands/presets/` (`vscode.sh`, `devtunnel.sh`, `tailscale.sh`); `presets/index.sh`
+> only loads and dispatches to them. `commands/startup.sh` reconciles the
+> `DOTFILES_STARTUP` list into boot units. Authentication that requires a human
+> (e.g. the VS Code tunnel OAuth login) stays a manual step you run with the tool's
+> own CLI — the preset never automates it. Each preset is idempotent: it checks its
+> own state and never repeats work already done.
 
 ---
 
@@ -209,15 +223,15 @@ secrets/
 Secrets are never committed or stored persistently in plaintext on disk:
 1. **Provider abstraction**: `SECRET_PROVIDER` selects a backend (default `infisical`). The core never logs in or parses a location — it hands `(VAR, LOCATOR)` to `_secret_provider_<id>_get`. Adding Vault/AWS/pass/etc. is a single new file in `secrets/providers/`; nothing else changes. The `infisical` backend prefers the CLI and falls back to the REST API (`curl` + `python3`, Universal Auth).
 2. **Three separated concerns**: the **env var** a tool reads (the stable contract — services declare only this), the **mapping** from that var to a location (owned entirely by the active provider), and **which backend** to ask (`SECRET_PROVIDER`). Changing one never forces a change to the others.
-3. **Graceful degradation**: with no credentials (or `SECRET_PROVIDER=env`), lookups return empty and opt-in services fall back cleanly without breaking bootstrap.
+3. **Graceful degradation**: with no credentials (or `SECRET_PROVIDER=env`), lookups return empty and opt-in commands fall back cleanly without breaking bootstrap.
 
 ### Where the mapping lives
 
-A service declares only the **env var names** it needs — never a key or a path:
+A preset declares only the **env var names** it needs — never a key or a path:
 
 ```bash
-# services/presets.sh
-vscode:tunnel)  printf '%s\n' "GITHUB_PAT" ;;
+# commands/presets/devtunnel.sh
+_preset_devtunnel_secret_specs() { case "$1" in host) printf '%s\n' "GITHUB_PAT" ;; esac; }
 ```
 
 The active provider owns the map from a var to its location, in that provider's
@@ -252,7 +266,7 @@ The model is **plain environment variables, hydrated on demand**. A tool always 
 * **You already exported it** (e.g. a secret manager populated your env): `run.sh` sees the variable is set and uses it as-is. Nothing is fetched. The same `GITHUB_PAT` serves `gh`, VS Code, and dev tunnels — one env var, many consumers.
 * **It's unset**: `secret_hydrate` resolves the var (a `DOTFILES_SECRET_MAP` override, else the active provider's map), fetches from the backend, and exports it into *this process only*. The value is never written to disk and disappears when the process exits. Raw mode can also pass an explicit locator via `--secret VAR[=LOCATOR]`.
 
-**At boot (autostart)** there is no shell to pre-export anything, so the service hydrates its own secrets at start using the Infisical machine identity. That identity is **not** a services concept — it's a standard environment credential. Provide it headlessly the standard way, via `~/.config/environment.d/*.conf`, which the systemd user manager reads automatically:
+**At boot (autostart)** there is no shell to pre-export anything, so the command hydrates its own secrets at start using the Infisical machine identity. That identity is **not** a startup concept — it's a standard environment credential. Provide it headlessly the standard way, via `~/.config/environment.d/*.conf`, which the systemd user manager reads automatically:
 
 ```ini
 # ~/.config/environment.d/10-infisical.conf   (chmod 600)
@@ -260,7 +274,7 @@ INFISICAL_CLIENT_ID=...
 INFISICAL_CLIENT_SECRET=...
 ```
 
-Everything else is fetched fresh at start. In practice most tools also cache their own credentials after the first authenticated run (VS Code file keychain, `tailscaled`), so even the machine identity is often unnecessary at boot.
+Everything else is fetched fresh at start. In practice most tools also cache their own credentials after the first authenticated run (VS Code stores its login, `tailscaled`), so even the machine identity is often unnecessary at boot.
 
 #### What the secret manager fetches
 
@@ -372,14 +386,15 @@ bootstrap.sh                                   # opens the run log; exports DOTF
                     ├── 2. User-Level Tools     (starship, sheldon, gh, infisical, antigravity, opencode)
                     └── 3. Controlled Tools     (vscode_cli, devtunnel, tailscale)
 
-# Run (by hand):
-services/index.sh run <tool:sub> [args...]
-  └─→ run.sh: hydrate secrets (env / Infisical) → authenticate → exec in the foreground
+# Autostart at every boot (the whole interface — declared via DOTFILES_STARTUP):
+DOTFILES_STARTUP="vscode:tunnel tailscale:up" chezmoi apply
+  └─→ .chezmoiscripts/run_onchange_register-startup.sh.tmpl   (re-runs when commands/ or the list changes)
+        └─→ commands/startup.sh   (reconcile: enable listed, remove unlisted)
+              └─→ registers a systemd/launchd unit per command
+                    └─→ OS init starts + supervises it at boot/login
+                          └─→ commands/run.sh <tool:sub>   (hydrate secret → auth check → foreground)
 
-# Autostart (declared via DOTFILES_SERVICES; registered by chezmoi, run by the OS):
-chezmoi apply
-  └─→ .chezmoiscripts/run_onchange_register-services.sh.tmpl   (re-runs when services/ or the list changes)
-        └─→ services/index.sh enable <tool:sub>   (register a systemd/launchd/schtasks unit)
-              └─→ OS init starts + supervises it at boot/login
-                    └─→ services/run.sh <tool:sub>   (hydrate secret → authenticate → foreground)
+# One-off by hand (rarely needed; from the chezmoi source dir):
+commands/run.sh <tool:sub> [args...]
+  └─→ hydrate secrets (env / Infisical) → auth check → exec in the foreground
 ```

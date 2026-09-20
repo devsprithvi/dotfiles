@@ -15,7 +15,9 @@ source "${LIB_DIR}/os.sh"
 source "${LIB_DIR}/logger.sh"
 source "${LIB_DIR}/helpers.sh"
 source "${LIB_DIR}/../secrets/index.sh"
-source "${LIB_DIR}/service_manager.sh"
+# NOTE: the OS autostart abstraction is NOT loaded here — it lives in
+# commands/autostart.sh and is sourced only by its sole consumer,
+# commands/startup.sh (same pattern as packages/installers/).
 
 # ── Step 2: Load Installer Modules ──────────────────────────────────────────
 # Generic, reusable package-manager wrappers. Each module provides a thin

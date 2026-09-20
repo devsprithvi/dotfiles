@@ -1,8 +1,9 @@
 bootstrap.sh
 utilities/
 packages/
-services/
+commands/
 secrets/
+tests/
 components/
 doc/
 README.md

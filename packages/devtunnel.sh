@@ -6,9 +6,9 @@ set -eo pipefail
 # ────────────────────────────────────────────────────────────────────────────
 # Installs Microsoft's standalone Dev Tunnels CLI binary (~/.local/bin/devtunnel).
 #
-# Boundary: this script ONLY installs. Authenticating and hosting ports are
-# runtime actions: services/index.sh run devtunnel:host
-# (via the generic runner services/run.sh + presets.sh).
+# Boundary: this script ONLY installs. Authenticating and hosting ports is a
+# startup command (preset devtunnel:host) — declared via DOTFILES_STARTUP and
+# run by commands/run.sh + commands/presets/.
 #
 # Control: ENABLE_DEVTUNNEL=1 (or ENABLE_DEV_TUNNEL=1) to install
 # ────────────────────────────────────────────────────────────────────────────

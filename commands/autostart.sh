@@ -1,37 +1,42 @@
 #!/usr/bin/env bash
 
 # ── Guard: skip if already sourced ──────────────────────────────────────────
-[[ -n "${_SERVICE_MANAGER_LIB_LOADED:-}" ]] && return 0
-_SERVICE_MANAGER_LIB_LOADED=1
+[[ -n "${_AUTOSTART_LIB_LOADED:-}" ]] && return 0
+_AUTOSTART_LIB_LOADED=1
 
 # ────────────────────────────────────────────────────────────────────────────
-# ── Service Manager — OS init-system abstraction ────────────────────────────
+# ── Autostart — OS init-system abstraction (used only by startup.sh) ────────
 # ────────────────────────────────────────────────────────────────────────────
-# The missing piece between "install" (packages/) and "run" (services/): making
-# a runtime action start ON ITS OWN — at boot / login — supervised by the OS's
-# native init system instead of a human holding a terminal open.
+# This is the "how does a command actually start on its own at boot?" layer. It
+# lives inside commands/ because commands/startup.sh is its ONLY consumer (the
+# same reason packages/installers/ lives inside packages/). It hands a command
+# to the OS's native init system so it starts and is supervised without a human
+# holding a terminal open.
 #
 #   Linux    → systemd *user* units      (~/.config/systemd/user/<name>.service)
 #   macOS    → launchd LaunchAgents       (~/Library/LaunchAgents/<name>.plist)
 #   Windows  → Task Scheduler logon task  (schtasks, best-effort)
 #
-# chezmoi deliberately does NOT run long-lived services during `apply` (a `run_`
+# chezmoi deliberately does NOT run long-lived commands during `apply` (a `run_`
 # script must finish; a tunnel never does). So instead of running them, we hand
-# them to the OS supervisor: chezmoi registers the units, the OS starts them.
+# them to the OS supervisor: apply registers the units, the OS starts them.
 #
 # Every unit is prefixed "dotfiles-" so managed units are always identifiable
 # and removable. The command to run is passed as separate arguments (no shell
 # string splitting), so args with paths stay intact across all three backends.
 #
 # Public API:
-#   service_supported                       → 0 if this OS has a driveable init
-#   service_register <name> <desc> <cmd...> → create/refresh the unit definition
-#   service_enable   <name>                 → enable + start now (+ boot persist)
-#   service_disable  <name>                 → stop + disable + remove the unit
-#   service_status   <name>                 → print current status
-#   service_list                            → list dotfiles-managed units
+#   autostart_supported                       → 0 if this OS has a driveable init
+#   autostart_register <name> <desc> <cmd...> → create/refresh the unit definition
+#   autostart_enable   <name>                 → enable + start now (+ boot persist)
+#   autostart_disable  <name>                 → stop + disable + remove the unit
+#   autostart_managed_names                   → list bare names we manage (reconcile)
+#   autostart_unsupported_reason              → human reason when init isn't driveable
 #
-# <name> is the bare service name (e.g. "vscode-tunnel"); the "dotfiles-" prefix
+# Inspecting a unit is the OS's job, not ours — use its native tools (Linux:
+# `systemctl --user status dotfiles-<name>`). We do not wrap status/list.
+#
+# <name> is the bare unit name (e.g. "vscode-tunnel"); the "dotfiles-" prefix
 # and the backend-specific extension are added internally.
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -152,8 +157,6 @@ _systemd_disable() {
     rm -f "$(_systemd_user_dir)/${SERVICE_PREFIX}$1.service"
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 }
-_systemd_status()  { _systemd_export_runtime_dir; systemctl --user --no-pager status "${SERVICE_PREFIX}$1.service"; }
-_systemd_list()    { _systemd_export_runtime_dir; systemctl --user list-unit-files "${SERVICE_PREFIX}*.service" --no-pager 2>/dev/null || true; }
 
 # ── macOS / launchd (LaunchAgent) ───────────────────────────────────────────
 _launchd_dir() { printf '%s\n' "$HOME/Library/LaunchAgents"; }
@@ -202,10 +205,6 @@ _launchd_disable() {
     launchctl unload -w "$plist" >/dev/null 2>&1 || true
     rm -f "$plist"
 }
-_launchd_status() {
-    launchctl list | grep "${SERVICE_PREFIX}$1" || log_info "${SERVICE_PREFIX}$1 is not loaded."
-}
-_launchd_list() { ls -1 "$(_launchd_dir)" 2>/dev/null | grep "^${SERVICE_PREFIX}" || true; }
 
 # ── Windows / Task Scheduler (best-effort logon task) ───────────────────────
 _schtasks_name() { printf '%s\n' "dotfiles\\$1"; }
@@ -222,11 +221,9 @@ _win_register() {
 }
 _win_enable()  { schtasks /Run  /TN "$(_schtasks_name "$1")" >/dev/null 2>&1 || true; }
 _win_disable() { schtasks /Delete /TN "$(_schtasks_name "$1")" /F  >/dev/null 2>&1 || true; }
-_win_status()  { schtasks /Query /TN "$(_schtasks_name "$1")" 2>/dev/null || log_info "task not found."; }
-_win_list()    { schtasks /Query /FO LIST 2>/dev/null | grep -i 'dotfiles\\\\' || true; }
 
 # ── Public dispatch ──────────────────────────────────────────────────────────
-service_supported() {
+autostart_supported() {
     # Linux: drivable if the user bus is already up OR systemd is the init and we
     # can bootstrap a user manager via linger. A cold headless boot has no active
     # user session yet, so gating on the live bus alone would wrongly refuse.
@@ -237,7 +234,7 @@ service_supported() {
 }
 
 # Print a human-friendly reason when the init system can't be driven here.
-service_unsupported_reason() {
+autostart_unsupported_reason() {
     if os_is_linux; then
         if ! has_command systemctl; then
             echo "systemctl not found (no systemd)"
@@ -253,7 +250,7 @@ service_unsupported_reason() {
     fi
 }
 
-service_register() {
+autostart_register() {
     local name="$1" desc="$2"; shift 2
     if os_is_linux;   then _systemd_register "$name" "$desc" "$@"; return $?; fi
     if os_is_macos;   then _launchd_register "$name" "$desc" "$@"; return $?; fi
@@ -261,30 +258,47 @@ service_register() {
     log_error "unsupported OS family '${OS_FAMILY}'."; return 1
 }
 
-service_enable() {
+autostart_enable() {
     if os_is_linux;   then _systemd_enable "$1"; return $?; fi
     if os_is_macos;   then _launchd_enable "$1"; return $?; fi
     if os_is_windows; then _win_enable     "$1"; return $?; fi
     return 1
 }
 
-service_disable() {
+autostart_disable() {
     if os_is_linux;   then _systemd_disable "$1"; return $?; fi
     if os_is_macos;   then _launchd_disable "$1"; return $?; fi
     if os_is_windows; then _win_disable     "$1"; return $?; fi
     return 1
 }
 
-service_status() {
-    if os_is_linux;   then _systemd_status "$1"; return $?; fi
-    if os_is_macos;   then _launchd_status "$1"; return $?; fi
-    if os_is_windows; then _win_status     "$1"; return $?; fi
-    return 1
+# ── Enumerate dotfiles-managed unit bare names (internal; for reconcile) ─────
+# Prints one bare name per line (the "dotfiles-" prefix + extension stripped),
+# so the startup reconciler can disable units that are no longer declared. This
+# is NOT a user-facing "list" command — inspect live units with the OS's tools.
+_systemd_managed_names() {
+    local dir f base
+    dir="$(_systemd_user_dir)"
+    for f in "$dir"/${SERVICE_PREFIX}*.service; do
+        [[ -e "$f" ]] || continue
+        base="$(basename "$f" .service)"
+        printf '%s\n' "${base#"$SERVICE_PREFIX"}"
+    done
 }
+_launchd_managed_names() {
+    local dir f base
+    dir="$(_launchd_dir)"
+    for f in "$dir"/${SERVICE_PREFIX}*.plist; do
+        [[ -e "$f" ]] || continue
+        base="$(basename "$f" .plist)"
+        printf '%s\n' "${base#"$SERVICE_PREFIX"}"
+    done
+}
+_win_managed_names() { :; }  # no reliable, cheap enumeration; skip reconcile on Windows
 
-service_list() {
-    if os_is_linux;   then _systemd_list; return $?; fi
-    if os_is_macos;   then _launchd_list; return $?; fi
-    if os_is_windows; then _win_list;     return $?; fi
-    return 1
+autostart_managed_names() {
+    if os_is_linux;   then _systemd_managed_names; return 0; fi
+    if os_is_macos;   then _launchd_managed_names; return 0; fi
+    if os_is_windows; then _win_managed_names;     return 0; fi
+    return 0
 }

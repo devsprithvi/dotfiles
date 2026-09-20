@@ -8,8 +8,8 @@ set -eo pipefail
 # lightweight CLI, NOT the full desktop editor.
 #
 # Boundary: this script ONLY installs. Running a tunnel or the web server is a
-# runtime action: services/index.sh run vscode:tunnel | vscode:web
-# (via the generic runner services/run.sh + presets.sh).
+# startup command (preset vscode:tunnel | vscode:web) — declared via
+# DOTFILES_STARTUP and run by commands/run.sh + commands/presets/.
 #
 # Control: ENABLE_VSCODE_CLI=1 to install (optional, off by default)
 # ────────────────────────────────────────────────────────────────────────────

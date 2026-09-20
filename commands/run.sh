@@ -2,10 +2,11 @@
 set -eo pipefail
 
 # ────────────────────────────────────────────────────────────────────────────
-# ── Generic Service Runner ──────────────────────────────────────────────────
+# ── Generic Command Runner ──────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
-# ONE runner for every runtime action. It does three things, then hands the
-# process to the tool in the FOREGROUND (so an init supervisor can own it):
+# ONE runner that executes a single preset command. The dotfile startup points
+# each boot unit at this runner; it does three things, then hands the process to
+# the tool in the FOREGROUND (so an init supervisor can own it):
 #
 #   1. HYDRATE secrets — pull named secrets from the secret manager (Infisical)
 #      and export them as environment variables, but ONLY if they aren't already
@@ -16,7 +17,7 @@ set -eo pipefail
 #
 # Two ways to call it:
 #
-#   run.sh <tool:sub> [args...]                       use a preset (services/presets.sh)
+#   run.sh <tool:sub> [args...]                       use a preset (commands/presets/<tool>.sh)
 #   run.sh --secret VAR@PATH [--secret ...] -- CMD..  run a raw command, hydrating
 #                                                      the secrets you name first
 #
@@ -24,7 +25,7 @@ set -eo pipefail
 #               VAR@ENV@PATH    (explicit Infisical environment)
 #
 # Secrets at boot: the tool's own persisted credentials usually suffice (VS Code
-# file keychain, tailscaled). If a service must fetch secrets at boot, only the
+# login store, tailscaled). If a command must fetch secrets at boot, only the
 # Infisical machine identity (INFISICAL_CLIENT_ID / INFISICAL_CLIENT_SECRET)
 # needs to reach the unit. It is a STANDARD env var, not a services concept —
 # provide it the standard way via ~/.config/environment.d/*.conf (the systemd
@@ -33,7 +34,7 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utilities/index.sh"
-source "${SCRIPT_DIR}/presets.sh"
+source "${SCRIPT_DIR}/presets/index.sh"
 log_set_component "run"
 
 # Secret hydration (parsing, mapping, provider dispatch) lives in the secrets/
@@ -44,8 +45,8 @@ log_set_component "run"
 _usage() {
     cat <<'EOF'
 Usage:
-  services/run.sh <tool:sub> [args...]                 run a preset
-  services/run.sh --secret VAR[=LOCATOR] [...] -- CMD...   raw command
+  commands/run.sh <tool:sub> [args...]                 run a preset
+  commands/run.sh --secret VAR[=LOCATOR] [...] -- CMD...   raw command
 
 Presets:
 EOF
